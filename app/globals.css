@@ -1,0 +1,116 @@
+:root {
+  color-scheme: light;
+  --bg: #ffffff;
+  --fg: #0a0a0a;
+  --muted: #4f4f4f;
+  --line: #0a0a0a;
+  --portrait-bg: #cacaca;
+  --accent: #c62828;
+  --btn-bg: #0a0a0a;
+  --btn-fg: #ffffff;
+  --btn-disabled: #b0b0b0;
+  --btn-disabled-fg: #f2f2f2;
+  --overlay: rgba(10, 10, 10, 0.55);
+  --focus: #c62828;
+  --ok: #1e7d34;
+  --font-display: Georgia, "Iowan Old Style", "Times New Roman", serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100dvh;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+button {
+  font-family: inherit;
+}
+
+.label {
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.btn {
+  font-family: var(--font-body);
+  font-size: 18px;
+  text-align: center;
+  cursor: pointer;
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  border: 2px solid var(--btn-bg);
+  padding: 16px 22px;
+  min-height: 52px;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.08s ease;
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn:disabled {
+  background: var(--btn-disabled);
+  border-color: var(--btn-disabled);
+  color: var(--btn-disabled-fg);
+  cursor: not-allowed;
+}
+
+.btn-outline {
+  background: transparent;
+  color: var(--fg);
+  border: 2px solid var(--line);
+}
+
+.btn:focus-visible,
+a:focus-visible,
+input:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+input[type="text"],
+input[type="number"] {
+  font-family: inherit;
+  font-size: 18px;
+  padding: 14px 12px;
+  border: 2px solid var(--line);
+  background: var(--bg);
+  color: var(--fg);
+  width: 100%;
+}
+
+::placeholder {
+  color: var(--muted);
+}
