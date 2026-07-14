@@ -14,21 +14,32 @@ import {
   updatePlayerName,
   deleteTeam,
   addPlayer,
+  resetPlayerClaim,
 } from "@/lib/actions/manager";
 
 type Team = { id: string; name: string; hearts_cached: number; status: string; event_id: string };
 type Finalist = { team_id: string; slot: number };
 type Player = { id: string; display_name: string; claim_status: string };
-type Tab = "clubs" | "diamonds" | "overview";
+type Claim = { player_id: string; pin: string | null };
+type Tab = "overview" | "hearts" | "clubs" | "diamonds" | "spades";
+
+const ROUND_TABS: { id: Tab; label: string }[] = [
+  { id: "hearts", label: "1 · Hearts" },
+  { id: "clubs", label: "2 · Clubs" },
+  { id: "diamonds", label: "3 · Diamonds" },
+  { id: "spades", label: "4 · Spades" },
+];
 
 export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michelle" | "gary"; displayName: string }) {
   const supabase = createClient();
   const [teams, setTeams] = useState<Team[]>([]);
   const [finalists, setFinalists] = useState<Finalist[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
+  const [claims, setClaims] = useState<Claim[]>([]);
   const [toast, setToastMsg] = useState<string | null>(null);
-  const [selectedClubsTeam, setSelectedClubsTeam] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>(role === "ajan" ? "clubs" : role === "michelle" ? "diamonds" : "overview");
+  const [activeTab, setActiveTab] = useState<Tab>(
+    role === "ajan" ? "clubs" : role === "michelle" ? "diamonds" : role === "gary" ? "spades" : "overview",
+  );
 
   function notify(msg: string) {
     setToastMsg(msg);
@@ -42,6 +53,8 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
     setFinalists(f ?? []);
     const { data: p } = await supabase.from("players").select("id, display_name, claim_status").order("display_name");
     setPlayers(p ?? []);
+    const { data: c } = await supabase.from("player_claims").select("player_id, pin").is("released_at", null);
+    setClaims(c ?? []);
   }, [supabase]);
 
   useEffect(() => {
@@ -51,6 +64,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
       .on("postgres_changes", { event: "*", schema: "public", table: "teams" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "finalists" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "players" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "player_claims" }, refresh)
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
@@ -62,11 +76,10 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
     window.location.reload();
   }
 
-  const TABS: { id: Tab; label: string }[] = [
-    { id: "clubs", label: "Clubs" },
-    { id: "diamonds", label: "Diamonds" },
-    { id: "overview", label: "Overview" },
-  ];
+  async function onAdjust(id: string, delta: number) {
+    await adjustHeartsManual(id, delta);
+    notify(`Adjusted by ${delta > 0 ? "+" : ""}${delta}.`);
+  }
 
   return (
     <main style={{ maxWidth: 560, margin: "0 auto", padding: "16px 16px 40px" }}>
@@ -80,16 +93,33 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
         </button>
       </header>
 
+      <nav style={{ marginBottom: 8 }}>
+        <button
+          onClick={() => setActiveTab("overview")}
+          aria-current={activeTab === "overview"}
+          style={{
+            width: "100%",
+            padding: "10px 8px",
+            fontSize: 14,
+            border: "1.6px solid var(--line)",
+            background: activeTab === "overview" ? "var(--btn-bg)" : "transparent",
+            color: activeTab === "overview" ? "var(--btn-fg)" : "var(--fg)",
+            cursor: "pointer",
+          }}
+        >
+          Overview
+        </button>
+      </nav>
       <nav style={{ display: "flex", gap: 8, marginBottom: 18 }}>
-        {TABS.map((t) => (
+        {ROUND_TABS.map((t) => (
           <button
             key={t.id}
             onClick={() => setActiveTab(t.id)}
             aria-current={activeTab === t.id}
             style={{
               flex: 1,
-              padding: "10px 8px",
-              fontSize: 14,
+              padding: "10px 6px",
+              fontSize: 13,
               border: "1.6px solid var(--line)",
               background: activeTab === t.id ? "var(--btn-bg)" : "transparent",
               color: activeTab === t.id ? "var(--btn-fg)" : "var(--fg)",
@@ -110,16 +140,24 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
         </div>
       )}
 
+      {activeTab === "hearts" && (
+        <HeartsView
+          teams={teams.filter((t) => t.status === "round1")}
+          onCreateMatchups={async () => {
+            const result = await createRandomMatchups();
+            notify(result.ok ? `Created ${result.created} matchup(s).` : "Could not create matchups.");
+          }}
+        />
+      )}
+
       {activeTab === "clubs" && (
         <ClubsView
           teams={teams.filter((t) => t.status === "round2")}
-          selected={selectedClubsTeam}
-          onSelect={setSelectedClubsTeam}
           onOutcome={async (a, b, outcome) => {
             await recordClubsOutcome(a, b, outcome);
-            setSelectedClubsTeam(null);
             notify(`Recorded ${outcome.toUpperCase()} — both teams advanced.`);
           }}
+          onAdjust={onAdjust}
         />
       )}
 
@@ -130,22 +168,14 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
             await recordDiamondsPass(id);
             notify("Marked Pass — advanced to final checkpoint.");
           }}
-          onAdjust={async (id, delta) => {
-            await adjustHeartsManual(id, delta);
-            notify(`Adjusted by ${delta > 0 ? "+" : ""}${delta}.`);
-          }}
+          onAdjust={onAdjust}
         />
       )}
 
-      {activeTab === "overview" && (
-        <OverviewView
+      {activeTab === "spades" && (
+        <SpadesView
           teams={teams}
           finalists={finalists}
-          players={players}
-          onCreateMatchups={async () => {
-            const result = await createRandomMatchups();
-            notify(result.ok ? `Created ${result.created} matchup(s).` : "Could not create matchups.");
-          }}
           onConfirmArrival={async (id) => {
             const result = await confirmArrival(id);
             notify(result.ok ? `Confirmed as Finalist #${result.slot}.` : "Slots are already full.");
@@ -154,10 +184,15 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
             await verifyWinner(id);
             notify("Winner verified.");
           }}
-          onAdjust={async (id, delta) => {
-            await adjustHeartsManual(id, delta);
-            notify(`Adjusted by ${delta > 0 ? "+" : ""}${delta}.`);
-          }}
+        />
+      )}
+
+      {activeTab === "overview" && (
+        <OverviewView
+          teams={teams}
+          players={players}
+          claims={claims}
+          onAdjust={onAdjust}
           onResetGame={async () => {
             await resetGameState();
             notify("Game state reset. Roster, event, and manager PINs kept.");
@@ -173,6 +208,14 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
           onAddPlayer={async (name) => {
             const result = await addPlayer(name);
             notify(result.ok ? "Player added to roster." : "That name is already on the roster.");
+          }}
+          onResetClaim={async (id) => {
+            const result = await resetPlayerClaim(id);
+            notify(
+              result.ok
+                ? "Claim reset — that name is available again."
+                : "Already paired up — use Remove team on that pair instead.",
+            );
           }}
         />
       )}
@@ -193,18 +236,32 @@ function TeamRow({ team, right }: { team: Team; right?: React.ReactNode }) {
   );
 }
 
+function HeartsView({ teams, onCreateMatchups }: { teams: Team[]; onCreateMatchups: () => void }) {
+  return (
+    <div>
+      <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, textAlign: "center", marginBottom: 16 }}>4 of Hearts — Round 1</h2>
+      <button className="btn btn-outline" style={{ marginBottom: 20 }} onClick={onCreateMatchups}>
+        Create random Round 1 matchups
+      </button>
+      <p className="label">Pairs at this round ({teams.length})</p>
+      {teams.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>No pairs currently in Round 1.</p>}
+      {teams.map((t) => (
+        <TeamRow key={t.id} team={t} />
+      ))}
+    </div>
+  );
+}
+
 function ClubsView({
   teams,
-  selected,
-  onSelect,
   onOutcome,
+  onAdjust,
 }: {
   teams: Team[];
-  selected: string | null;
-  onSelect: (id: string | null) => void;
   onOutcome: (a: string, b: string, outcome: "pass" | "fail") => void;
+  onAdjust: (id: string, delta: number) => void;
 }) {
-  const [pendingPair, setPendingPair] = useState<[string, string] | null>(null);
+  const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   return (
     <div>
       <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, textAlign: "center", marginBottom: 16 }}>8 of Clubs Game</h2>
@@ -215,30 +272,40 @@ function ClubsView({
           key={t.id}
           team={t}
           right={
-            <button
-              className="btn"
-              style={{ width: "auto", minHeight: "auto", padding: "10px 16px", fontSize: 14 }}
-              onClick={() => {
-                if (selected === t.id) return onSelect(null);
-                if (!selected) return onSelect(t.id);
-                setPendingPair([selected, t.id]);
-              }}
-            >
-              {selected === t.id ? "Cancel" : "Select outcome"}
-            </button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <button
+                className="btn"
+                style={{ width: "auto", minHeight: "auto", padding: "10px 16px", fontSize: 14 }}
+                onClick={() => setSelectedTeam(t)}
+              >
+                Select outcome
+              </button>
+              <button
+                className="btn-outline"
+                style={{ width: "auto", minHeight: "auto", padding: "6px 10px", fontSize: 12, border: "1.6px solid var(--line)" }}
+                onClick={() => {
+                  const delta = Number(prompt("Heart adjustment (e.g. -1 or 2)"));
+                  if (!Number.isNaN(delta) && delta !== 0) onAdjust(t.id, delta);
+                }}
+              >
+                Adjust
+              </button>
+            </div>
           }
         />
       ))}
-      {pendingPair && (
+      {selectedTeam && (
         <OutcomeModal
-          onClose={() => setPendingPair(null)}
-          onPass={() => {
-            onOutcome(pendingPair[0], pendingPair[1], "pass");
-            setPendingPair(null);
+          teams={teams}
+          selectedTeam={selectedTeam}
+          onClose={() => setSelectedTeam(null)}
+          onPass={(otherId) => {
+            onOutcome(selectedTeam.id, otherId, "pass");
+            setSelectedTeam(null);
           }}
-          onFail={() => {
-            onOutcome(pendingPair[0], pendingPair[1], "fail");
-            setPendingPair(null);
+          onFail={(otherId) => {
+            onOutcome(selectedTeam.id, otherId, "fail");
+            setSelectedTeam(null);
           }}
         />
       )}
@@ -246,26 +313,62 @@ function ClubsView({
   );
 }
 
-function OutcomeModal({ onClose, onPass, onFail }: { onClose: () => void; onPass: () => void; onFail: () => void }) {
+function OutcomeModal({
+  teams,
+  selectedTeam,
+  onClose,
+  onPass,
+  onFail,
+}: {
+  teams: Team[];
+  selectedTeam: Team;
+  onClose: () => void;
+  onPass: (otherTeamId: string) => void;
+  onFail: (otherTeamId: string) => void;
+}) {
+  const others = teams.filter((t) => t.id !== selectedTeam.id);
+  const [otherId, setOtherId] = useState(others[0]?.id ?? "");
+
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.55)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 50 }}>
       <div style={{ background: "var(--bg)", width: "100%", maxWidth: 560, padding: 22 }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
-          <h2 style={{ fontWeight: 400, fontSize: 22 }}>Record outcome</h2>
+          <h2 style={{ fontWeight: 400, fontSize: 22 }}>Select outcome</h2>
           <button className="btn-outline" style={{ width: 36, height: 36, border: "1.6px solid var(--line)" }} onClick={onClose}>
             ✕
           </button>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <button className="btn-outline" style={{ border: "2px solid var(--line)", padding: 20 }} onClick={onPass}>
-            Pass
-            <div style={{ fontSize: 13, color: "var(--muted)" }}>Both teams +1 ♥, collect 8♣</div>
-          </button>
-          <button className="btn-outline" style={{ border: "2px solid var(--line)", padding: 20 }} onClick={onFail}>
-            Fail
-            <div style={{ fontSize: 13, color: "var(--muted)" }}>Both teams -2 ♥, collect 8♣</div>
-          </button>
-        </div>
+
+        <TeamRow team={selectedTeam} />
+
+        {others.length === 0 ? (
+          <p style={{ color: "var(--muted)", fontSize: 14, padding: "12px 0" }}>
+            No other pair is at this checkpoint yet — wait for one to arrive.
+          </p>
+        ) : (
+          <>
+            <p className="label" style={{ marginTop: 12 }}>
+              Pairing with
+            </p>
+            <select value={otherId} onChange={(e) => setOtherId(e.target.value)} style={{ marginBottom: 16 }}>
+              {others.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <button className="btn-outline" style={{ border: "2px solid var(--line)", padding: 20 }} onClick={() => onPass(otherId)}>
+                Pass
+                <div style={{ fontSize: 13, color: "var(--muted)" }}>Both teams +1 ♥, collect 8♣</div>
+              </button>
+              <button className="btn-outline" style={{ border: "2px solid var(--line)", padding: 20 }} onClick={() => onFail(otherId)}>
+                Fail
+                <div style={{ fontSize: 13, color: "var(--muted)" }}>Both teams -2 ♥, collect 8♣</div>
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -312,33 +415,17 @@ function DiamondsView({
   );
 }
 
-function OverviewView({
+function SpadesView({
   teams,
   finalists,
-  players,
-  onCreateMatchups,
   onConfirmArrival,
   onVerifyWinner,
-  onAdjust,
-  onResetGame,
-  onRenamePlayer,
-  onRemoveTeam,
-  onAddPlayer,
 }: {
   teams: Team[];
   finalists: Finalist[];
-  players: Player[];
-  onCreateMatchups: () => void;
   onConfirmArrival: (id: string) => void;
   onVerifyWinner: (id: string) => void;
-  onAdjust: (id: string, delta: number) => void;
-  onResetGame: () => void;
-  onRenamePlayer: (id: string, name: string) => void;
-  onRemoveTeam: (id: string) => void;
-  onAddPlayer: (name: string) => void;
 }) {
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [newPlayerName, setNewPlayerName] = useState("");
   const waiting = teams.filter((t) => t.status === "final_waiting");
   const finalistTeams = finalists
     .map((f) => ({ ...f, team: teams.find((t) => t.id === f.team_id) }))
@@ -347,11 +434,7 @@ function OverviewView({
 
   return (
     <div>
-      <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, textAlign: "center", marginBottom: 16 }}>Overview</h2>
-
-      <button className="btn btn-outline" style={{ marginBottom: 20 }} onClick={onCreateMatchups}>
-        Create random Round 1 matchups
-      </button>
+      <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, textAlign: "center", marginBottom: 16 }}>Final Checkpoint — Round 4</h2>
 
       <p className="label">Top 3 — Finalists ({finalists.length} / 3)</p>
       {finalistTeams.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>No finalists confirmed yet.</p>}
@@ -370,6 +453,7 @@ function OverviewView({
       <p className="label" style={{ marginTop: 20 }}>
         Awaiting arrival confirmation ({waiting.length})
       </p>
+      {waiting.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>No pairs waiting to check in.</p>}
       {waiting.map((t) => (
         <TeamRow
           key={t.id}
@@ -386,10 +470,40 @@ function OverviewView({
           }
         />
       ))}
+    </div>
+  );
+}
 
-      <p className="label" style={{ marginTop: 20 }}>
-        All teams ({teams.length})
-      </p>
+function OverviewView({
+  teams,
+  players,
+  claims,
+  onAdjust,
+  onResetGame,
+  onRenamePlayer,
+  onRemoveTeam,
+  onAddPlayer,
+  onResetClaim,
+}: {
+  teams: Team[];
+  players: Player[];
+  claims: Claim[];
+  onAdjust: (id: string, delta: number) => void;
+  onResetGame: () => void;
+  onRenamePlayer: (id: string, name: string) => void;
+  onRemoveTeam: (id: string) => void;
+  onAddPlayer: (name: string) => void;
+  onResetClaim: (id: string) => void;
+}) {
+  const pinByPlayerId = new Map(claims.map((c) => [c.player_id, c.pin]));
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [newPlayerName, setNewPlayerName] = useState("");
+
+  return (
+    <div>
+      <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, textAlign: "center", marginBottom: 16 }}>Overview</h2>
+
+      <p className="label">All teams ({teams.length})</p>
       {teams.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>No teams yet.</p>}
       {teams
         .slice()
@@ -448,23 +562,46 @@ function OverviewView({
           Add
         </button>
       </div>
-      {players.map((p) => (
-        <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 0", borderBottom: "1px solid rgba(10,10,10,0.1)" }}>
-          <Portrait name={p.display_name} size={32} />
-          <div style={{ flex: 1, fontSize: 15 }}>{p.display_name}</div>
-          <span className="label" style={{ marginRight: 8 }}>{p.claim_status}</span>
-          <button
-            className="btn-outline"
-            style={{ width: "auto", minHeight: "auto", padding: "6px 10px", fontSize: 12, border: "1.6px solid var(--line)" }}
-            onClick={() => {
-              const newName = prompt("New name", p.display_name);
-              if (newName && newName.trim() && newName.trim() !== p.display_name) onRenamePlayer(p.id, newName.trim());
-            }}
-          >
-            Edit name
-          </button>
-        </div>
-      ))}
+      {players.map((p) => {
+        const pin = pinByPlayerId.get(p.id);
+        return (
+          <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 0", borderBottom: "1px solid rgba(10,10,10,0.1)" }}>
+            <Portrait name={p.display_name} size={32} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 15 }}>{p.display_name}</div>
+              <div className="label">
+                {p.claim_status}
+                {p.claim_status === "claimed" && pin ? ` — PIN ${pin}` : ""}
+              </div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <button
+                className="btn-outline"
+                style={{ width: "auto", minHeight: "auto", padding: "6px 10px", fontSize: 12, border: "1.6px solid var(--line)" }}
+                onClick={() => {
+                  const newName = prompt("New name", p.display_name);
+                  if (newName && newName.trim() && newName.trim() !== p.display_name) onRenamePlayer(p.id, newName.trim());
+                }}
+              >
+                Edit name
+              </button>
+              {p.claim_status === "claimed" && (
+                <button
+                  className="btn-outline"
+                  style={{ width: "auto", minHeight: "auto", padding: "6px 10px", fontSize: 12, border: "1.6px solid var(--accent)", color: "var(--accent)" }}
+                  onClick={() => {
+                    if (confirm(`Reset ${p.display_name}'s claim? They picked the wrong name — this frees it back to available.`)) {
+                      onResetClaim(p.id);
+                    }
+                  }}
+                >
+                  Reset claim
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
 
       <button
         className="btn"
