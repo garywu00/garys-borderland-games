@@ -465,6 +465,10 @@ function SelfieStep({ onDone }: { onDone: (photo: string | null) => void }) {
     canvas.height = 240;
     const ctx = canvas.getContext("2d");
     const side = Math.min(videoEl.videoWidth, videoEl.videoHeight);
+    // Mirror the capture to match the mirrored preview — this is what a
+    // "selfie" is expected to look like, not the raw front-camera feed.
+    ctx?.translate(240, 0);
+    ctx?.scale(-1, 1);
     ctx?.drawImage(videoEl, (videoEl.videoWidth - side) / 2, (videoEl.videoHeight - side) / 2, side, side, 0, 0, 240, 240);
     onDone(canvas.toDataURL("image/jpeg", 0.7));
   }
@@ -478,7 +482,14 @@ function SelfieStep({ onDone }: { onDone: (photo: string | null) => void }) {
           playsInline
           autoPlay
           muted
-          style={{ width: "100%", height: "100%", objectFit: "cover", filter: "grayscale(1)", display: streaming ? "block" : "none" }}
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            filter: "grayscale(1)",
+            transform: "scaleX(-1)",
+            display: streaming ? "block" : "none",
+          }}
         />
       </div>
       <button className="btn" onClick={capture}>

@@ -1,22 +1,34 @@
 "use client";
 
 import { useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { managerPinLogin } from "@/lib/actions/managerAuth";
+
+const ROLES = [
+  { role: "ajan" as const, label: "Ajan" },
+  { role: "michelle" as const, label: "Michelle" },
+  { role: "gary" as const, label: "Gary" },
+];
 
 export function ManagerLogin() {
-  const [email, setEmail] = useState("");
-  const [sent, setSent] = useState(false);
+  const [selected, setSelected] = useState<"ajan" | "michelle" | "gary" | null>(null);
+  const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const supabase = createClient();
+  const [submitting, setSubmitting] = useState(false);
 
-  async function sendLink() {
+  async function submit() {
+    if (!selected || pin.length !== 4) return;
+    setSubmitting(true);
     setError(null);
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=/manager` },
-    });
-    if (error) setError(error.message);
-    else setSent(true);
+    const result = await managerPinLogin(selected, pin);
+    setSubmitting(false);
+    if (result.ok) {
+      window.location.reload();
+    } else if (result.reason === "incorrect_pin") {
+      setError("Incorrect PIN. Try again.");
+      setPin("");
+    } else {
+      setError("Something went wrong. Try again.");
+    }
   }
 
   return (
@@ -24,20 +36,42 @@ export function ManagerLogin() {
       <div style={{ display: "flex", flexDirection: "column", gap: 16, width: "100%", maxWidth: 360, alignItems: "center" }}>
         <h1 style={{ fontFamily: "var(--font-display)", fontSize: 32, fontWeight: 700 }}>GARY</h1>
         <p className="label">Manager sign in</p>
-        {sent ? (
-          <p style={{ textAlign: "center", fontSize: 15 }}>Check {email} for a sign-in link.</p>
+
+        {!selected ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
+            {ROLES.map((r) => (
+              <button key={r.role} className="btn btn-outline" onClick={() => setSelected(r.role)}>
+                {r.label}
+              </button>
+            ))}
+          </div>
         ) : (
           <>
+            <p style={{ fontSize: 16 }}>{ROLES.find((r) => r.role === selected)?.label}</p>
             <input
               type="text"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              aria-label="Email address"
+              inputMode="numeric"
+              maxLength={4}
+              value={pin}
+              onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+              placeholder="••••"
+              autoFocus
+              aria-label="4-digit PIN"
+              style={{ textAlign: "center", letterSpacing: "0.5em", fontSize: 24, width: 160 }}
             />
             {error && <p style={{ color: "var(--accent)", fontSize: 14 }}>{error}</p>}
-            <button className="btn" onClick={sendLink} disabled={!email}>
-              Send magic link
+            <button className="btn" onClick={submit} disabled={pin.length !== 4 || submitting}>
+              {submitting ? "Signing in…" : "Sign in"}
+            </button>
+            <button
+              className="btn btn-outline"
+              onClick={() => {
+                setSelected(null);
+                setPin("");
+                setError(null);
+              }}
+            >
+              Back
             </button>
           </>
         )}

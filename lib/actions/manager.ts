@@ -304,4 +304,21 @@ export async function deleteTeam(teamId: string) {
   return { ok: true as const };
 }
 
+/** Adds a new roster entry mid-event, so late signups don't need a database change. */
+export async function addPlayer(name: string) {
+  const manager = await requireManager();
+  const admin = createAdminClient();
+  const trimmed = name.trim();
+  if (!trimmed) return { ok: false as const, reason: "invalid_name" as const };
+
+  const { data: event } = await admin.from("events").select("id").eq("status", "active").limit(1).maybeSingle();
+  if (!event) return { ok: false as const, reason: "no_active_event" as const };
+
+  const { error } = await admin.from("players").insert({ event_id: event.id, display_name: trimmed });
+  if (error) return { ok: false as const, reason: "duplicate_name" as const };
+
+  await logAction(manager.id, manager.role, "Added player", null, null, { name: trimmed });
+  return { ok: true as const };
+}
+
 export { CARD_META };

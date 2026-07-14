@@ -13,6 +13,7 @@ import {
   resetGameState,
   updatePlayerName,
   deleteTeam,
+  addPlayer,
 } from "@/lib/actions/manager";
 
 type Team = { id: string; name: string; hearts_cached: number; status: string; event_id: string };
@@ -169,6 +170,10 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
             const result = await deleteTeam(id);
             notify(result.ok ? "Team removed. Members are available again." : "Could not remove team.");
           }}
+          onAddPlayer={async (name) => {
+            const result = await addPlayer(name);
+            notify(result.ok ? "Player added to roster." : "That name is already on the roster.");
+          }}
         />
       )}
     </main>
@@ -318,6 +323,7 @@ function OverviewView({
   onResetGame,
   onRenamePlayer,
   onRemoveTeam,
+  onAddPlayer,
 }: {
   teams: Team[];
   finalists: Finalist[];
@@ -329,8 +335,10 @@ function OverviewView({
   onResetGame: () => void;
   onRenamePlayer: (id: string, name: string) => void;
   onRemoveTeam: (id: string) => void;
+  onAddPlayer: (name: string) => void;
 }) {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [newPlayerName, setNewPlayerName] = useState("");
   const waiting = teams.filter((t) => t.status === "final_waiting");
   const finalistTeams = finalists
     .map((f) => ({ ...f, team: teams.find((t) => t.id === f.team_id) }))
@@ -419,6 +427,27 @@ function OverviewView({
       <p className="label" style={{ marginTop: 20 }}>
         Roster ({players.length})
       </p>
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <input
+          type="text"
+          placeholder="Add a name…"
+          value={newPlayerName}
+          onChange={(e) => setNewPlayerName(e.target.value)}
+          aria-label="New player name"
+          style={{ flex: 1 }}
+        />
+        <button
+          className="btn"
+          style={{ width: "auto", minHeight: "auto", padding: "0 16px", fontSize: 14 }}
+          disabled={!newPlayerName.trim()}
+          onClick={() => {
+            onAddPlayer(newPlayerName.trim());
+            setNewPlayerName("");
+          }}
+        >
+          Add
+        </button>
+      </div>
       {players.map((p) => (
         <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 0", borderBottom: "1px solid rgba(10,10,10,0.1)" }}>
           <Portrait name={p.display_name} size={32} />

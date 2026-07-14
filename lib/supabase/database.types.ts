@@ -279,18 +279,21 @@ export type Database = {
           created_at: string
           display_name: string
           id: string
+          pin_hash: string | null
           role: string
         }
         Insert: {
           created_at?: string
           display_name: string
           id: string
+          pin_hash?: string | null
           role: string
         }
         Update: {
           created_at?: string
           display_name?: string
           id?: string
+          pin_hash?: string | null
           role?: string
         }
         Relationships: []
