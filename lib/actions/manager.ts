@@ -140,6 +140,38 @@ export async function confirmArrival(teamId: string) {
   return { ok: true as const, slot };
 }
 
+/**
+ * Undoes a mistaken arrival confirmation — frees the finalist slot and puts
+ * the team back to awaiting confirmation. If this was the 3rd/final slot,
+ * also reopens the game for anyone who got auto-closed-out when it filled.
+ */
+export async function undoFinalistConfirmation(teamId: string) {
+  const manager = await requireManager();
+  const admin = createAdminClient();
+
+  const { data: finalist } = await admin.from("finalists").select("id, slot").eq("team_id", teamId).maybeSingle();
+  if (!finalist) return { ok: false as const, reason: "not_found" as const };
+
+  const { data: winner } = await admin
+    .from("winner_results")
+    .select("id")
+    .eq("team_id", teamId)
+    .eq("reversed", false)
+    .maybeSingle();
+  if (winner) return { ok: false as const, reason: "already_won" as const };
+
+  await admin.from("finalists").delete().eq("id", finalist.id);
+  await admin.from("checkpoint_arrivals").delete().eq("team_id", teamId).eq("checkpoint", "final");
+  await admin.from("teams").update({ status: "final_waiting" }).eq("id", teamId);
+
+  if (finalist.slot === 3) {
+    await admin.from("teams").update({ status: "final_waiting" }).eq("status", "non_finalist");
+  }
+
+  await logAction(manager.id, manager.role, "Undid finalist confirmation", teamId, { slot: finalist.slot }, null);
+  return { ok: true as const };
+}
+
 export async function verifyWinner(teamId: string) {
   const manager = await requireManager();
   const admin = createAdminClient();

@@ -15,12 +15,14 @@ import {
   deleteTeam,
   addPlayer,
   resetPlayerClaim,
+  undoFinalistConfirmation,
 } from "@/lib/actions/manager";
 
 type Team = { id: string; name: string; hearts_cached: number; status: string; event_id: string };
 type Finalist = { team_id: string; slot: number };
 type Player = { id: string; display_name: string; claim_status: string };
 type Claim = { player_id: string; pin: string | null };
+type ActivityEntry = { id: string; actor_role: string; action: string; created_at: string };
 type Tab = "overview" | "hearts" | "clubs" | "diamonds" | "spades";
 
 const ROUND_TABS: { id: Tab; label: string }[] = [
@@ -36,6 +38,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
   const [finalists, setFinalists] = useState<Finalist[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [claims, setClaims] = useState<Claim[]>([]);
+  const [recentActions, setRecentActions] = useState<ActivityEntry[]>([]);
   const [toast, setToastMsg] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>(
     role === "ajan" ? "clubs" : role === "michelle" ? "diamonds" : role === "gary" ? "spades" : "overview",
@@ -55,6 +58,12 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
     setPlayers(p ?? []);
     const { data: c } = await supabase.from("player_claims").select("player_id, pin").is("released_at", null);
     setClaims(c ?? []);
+    const { data: a } = await supabase
+      .from("manager_actions")
+      .select("id, actor_role, action, created_at")
+      .order("created_at", { ascending: false })
+      .limit(20);
+    setRecentActions(a ?? []);
   }, [supabase]);
 
   useEffect(() => {
@@ -65,6 +74,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
       .on("postgres_changes", { event: "*", schema: "public", table: "finalists" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "players" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "player_claims" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "manager_actions" }, refresh)
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
@@ -145,7 +155,13 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
           teams={teams.filter((t) => t.status === "round1")}
           onCreateMatchups={async () => {
             const result = await createRandomMatchups();
-            notify(result.ok ? `Created ${result.created} matchup(s).` : "Could not create matchups.");
+            if (!result.ok) {
+              notify("Could not create matchups.");
+            } else if (result.leftoverTeam) {
+              notify(`Created ${result.created} matchup(s). One pair had no opponent — pair a trio or wait for more teams.`);
+            } else {
+              notify(`Created ${result.created} matchup(s).`);
+            }
           }}
         />
       )}
@@ -184,6 +200,16 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
             await verifyWinner(id);
             notify("Winner verified.");
           }}
+          onUndoFinalist={async (id) => {
+            const result = await undoFinalistConfirmation(id);
+            notify(
+              result.ok
+                ? "Finalist confirmation undone — slot is open again."
+                : result.reason === "already_won"
+                  ? "This team is the verified winner — undo the winner first."
+                  : "Could not undo.",
+            );
+          }}
         />
       )}
 
@@ -192,6 +218,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
           teams={teams}
           players={players}
           claims={claims}
+          recentActions={recentActions}
           onAdjust={onAdjust}
           onResetGame={async () => {
             await resetGameState();
@@ -420,11 +447,13 @@ function SpadesView({
   finalists,
   onConfirmArrival,
   onVerifyWinner,
+  onUndoFinalist,
 }: {
   teams: Team[];
   finalists: Finalist[];
   onConfirmArrival: (id: string) => void;
   onVerifyWinner: (id: string) => void;
+  onUndoFinalist: (id: string) => void;
 }) {
   const waiting = teams.filter((t) => t.status === "final_waiting");
   const finalistTeams = finalists
@@ -443,9 +472,20 @@ function SpadesView({
           key={f.team.id}
           team={f.team}
           right={
-            <button className="btn" style={{ width: "auto", minHeight: "auto", padding: "10px 16px", fontSize: 13 }} onClick={() => onVerifyWinner(f.team.id)}>
-              Mark winner
-            </button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <button className="btn" style={{ width: "auto", minHeight: "auto", padding: "10px 16px", fontSize: 13 }} onClick={() => onVerifyWinner(f.team.id)}>
+                Mark winner
+              </button>
+              <button
+                className="btn-outline"
+                style={{ width: "auto", minHeight: "auto", padding: "6px 10px", fontSize: 12, border: "1.6px solid var(--accent)", color: "var(--accent)" }}
+                onClick={() => {
+                  if (confirm(`Undo ${f.team.name}'s finalist confirmation? This frees up slot #${f.slot}.`)) onUndoFinalist(f.team.id);
+                }}
+              >
+                Undo
+              </button>
+            </div>
           }
         />
       ))}
@@ -478,6 +518,7 @@ function OverviewView({
   teams,
   players,
   claims,
+  recentActions,
   onAdjust,
   onResetGame,
   onRenamePlayer,
@@ -488,6 +529,7 @@ function OverviewView({
   teams: Team[];
   players: Player[];
   claims: Claim[];
+  recentActions: ActivityEntry[];
   onAdjust: (id: string, delta: number) => void;
   onResetGame: () => void;
   onRenamePlayer: (id: string, name: string) => void;
@@ -603,6 +645,16 @@ function OverviewView({
         );
       })}
 
+      <p className="label" style={{ marginTop: 20 }}>
+        Recent activity
+      </p>
+      {recentActions.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>No actions logged yet.</p>}
+      {recentActions.map((a) => (
+        <div key={a.id} style={{ padding: "8px 0", borderBottom: "1px solid rgba(10,10,10,0.1)", fontSize: 13 }}>
+          <span style={{ color: "var(--muted)" }}>{formatRelativeTime(a.created_at)}</span> — {a.actor_role}: {a.action}
+        </div>
+      ))}
+
       <button
         className="btn"
         style={{ marginTop: 28, width: "100%", background: "var(--accent)", borderColor: "var(--accent)" }}
@@ -648,4 +700,14 @@ function ResetConfirmModal({ onClose, onConfirm }: { onClose: () => void; onConf
       </div>
     </div>
   );
+}
+
+function formatRelativeTime(iso: string): string {
+  const seconds = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
 }

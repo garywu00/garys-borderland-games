@@ -62,6 +62,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   const [opponentTeam, setOpponentTeam] = useState<Team | null>(null);
   const [collectedCards, setCollectedCards] = useState<CardCode[]>([]);
   const [finalistSlot, setFinalistSlot] = useState<number | null>(null);
+  const [isWinner, setIsWinner] = useState(false);
   const [uiStep, setUiStep] = useState<"landing" | "selfie" | "select-name" | "confirm" | "recovery">("landing");
   const [selfie, setSelfie] = useState<string | null>(null);
   const [pinShown, setPinShown] = useState<string | null>(null);
@@ -168,6 +169,17 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     setFinalistSlot(data?.slot ?? null);
   }, [supabase, teamId]);
 
+  const refreshWinner = useCallback(async () => {
+    if (!teamId) return;
+    const { data } = await supabase
+      .from("winner_results")
+      .select("id")
+      .eq("team_id", teamId)
+      .eq("reversed", false)
+      .maybeSingle();
+    setIsWinner(!!data);
+  }, [supabase, teamId]);
+
   useEffect(() => {
     if (!ready) return;
     refreshRoster();
@@ -177,6 +189,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     refreshInvites();
     refreshCards();
     refreshFinalist();
+    refreshWinner();
   }, [
     ready,
     refreshRoster,
@@ -186,6 +199,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     refreshInvites,
     refreshCards,
     refreshFinalist,
+    refreshWinner,
   ]);
 
   useEffect(() => {
@@ -207,6 +221,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "matchups" }, refreshMatchup)
       .on("postgres_changes", { event: "*", schema: "public", table: "collected_cards" }, refreshCards)
       .on("postgres_changes", { event: "*", schema: "public", table: "finalists" }, refreshFinalist)
+      .on("postgres_changes", { event: "*", schema: "public", table: "winner_results" }, refreshWinner)
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
@@ -222,6 +237,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     refreshMatchup,
     refreshCards,
     refreshFinalist,
+    refreshWinner,
   ]);
 
   if (!ready) return null;
@@ -436,7 +452,24 @@ export function PlayerApp({ eventId }: { eventId: string }) {
           </p>
         </Stack>
       )}
-      {team.status === "finalist" && (
+      {team.status === "finalist" && isWinner && (
+        <Stack>
+          <p className="label">【 Game Clear 】</p>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: 44, fontWeight: 700, textAlign: "center" }}>
+            You won!
+          </h2>
+          <p style={{ fontSize: 16, textAlign: "center", maxWidth: 300 }}>
+            {team.name} takes Gary&apos;s 26th Borderland Games. Congratulations!
+          </p>
+          <div style={{ fontSize: 24 }}>♥ {team.hearts_cached} remaining</div>
+          <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
+            {collectedCards.map((c) => (
+              <CardDisplay key={c} code={c} width={90} />
+            ))}
+          </div>
+        </Stack>
+      )}
+      {team.status === "finalist" && !isWinner && (
         <Stack>
           <p className="label">You qualified!</p>
           <h2 style={{ fontSize: 40, fontWeight: 400 }}>Finalist #{finalistSlot ?? "—"}</h2>
