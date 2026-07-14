@@ -55,6 +55,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   const [teamId, setTeamId] = useState<string | null>(null);
   const [team, setTeam] = useState<Team | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
+  const [pairedPlayerIds, setPairedPlayerIds] = useState<Set<string>>(new Set());
   const [me, setMe] = useState<Player | null>(null);
   const [invites, setInvites] = useState<Invite[]>([]);
   const [matchup, setMatchup] = useState<Matchup | null>(null);
@@ -95,6 +96,11 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     setPlayers(data ?? []);
     if (playerId) setMe((data ?? []).find((p) => p.id === playerId) ?? null);
   }, [supabase, eventId, playerId]);
+
+  const refreshPairedPlayers = useCallback(async () => {
+    const { data } = await supabase.from("team_members").select("player_id");
+    setPairedPlayerIds(new Set((data ?? []).map((m) => m.player_id)));
+  }, [supabase]);
 
   const refreshTeam = useCallback(async () => {
     if (!teamId) return;
@@ -152,11 +158,12 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   useEffect(() => {
     if (!ready) return;
     refreshRoster();
+    refreshPairedPlayers();
     refreshTeam();
     refreshInvites();
     refreshCards();
     refreshFinalist();
-  }, [ready, refreshRoster, refreshTeam, refreshInvites, refreshCards, refreshFinalist]);
+  }, [ready, refreshRoster, refreshPairedPlayers, refreshTeam, refreshInvites, refreshCards, refreshFinalist]);
 
   useEffect(() => {
     refreshMatchup();
@@ -168,6 +175,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     const channel = supabase
       .channel("player-app")
       .on("postgres_changes", { event: "*", schema: "public", table: "players" }, refreshRoster)
+      .on("postgres_changes", { event: "*", schema: "public", table: "team_members" }, refreshPairedPlayers)
       .on("postgres_changes", { event: "*", schema: "public", table: "pair_invites" }, refreshInvites)
       .on("postgres_changes", { event: "*", schema: "public", table: "teams" }, refreshTeam)
       .on("postgres_changes", { event: "*", schema: "public", table: "matchups" }, refreshMatchup)
@@ -177,7 +185,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [ready, supabase, refreshRoster, refreshInvites, refreshTeam, refreshMatchup, refreshCards, refreshFinalist]);
+  }, [ready, supabase, refreshRoster, refreshPairedPlayers, refreshInvites, refreshTeam, refreshMatchup, refreshCards, refreshFinalist]);
 
   if (!ready) return null;
 
@@ -271,6 +279,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
         <PairingLobby
           me={me}
           players={players}
+          pairedPlayerIds={pairedPlayerIds}
           invites={invites}
           onPaired={(newTeamId, pin) => {
             setTeamId(newTeamId);
@@ -594,19 +603,26 @@ function RecoveryStep({
 function PairingLobby({
   me,
   players,
+  pairedPlayerIds,
   invites,
   onPaired,
   notify,
 }: {
   me: Player;
   players: Player[];
+  pairedPlayerIds: Set<string>;
   invites: Invite[];
   onPaired: (teamId: string, pin: string) => void;
   notify: (msg: string) => void;
 }) {
   const incoming = invites.filter((i) => i.to_player_id === me.id);
   const outgoing = invites.find((i) => i.from_player_id === me.id);
-  const available = players.filter((p) => p.claim_status === "available" && p.id !== me.id);
+  // Only people who've actually signed in (claimed their identity) and
+  // aren't already on a team show up as invitable — not the whole roster.
+  const available = players.filter(
+    (p) => p.claim_status === "claimed" && p.id !== me.id && !pairedPlayerIds.has(p.id),
+  );
+  const [pendingId, setPendingId] = useState<string | null>(null);
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
@@ -625,7 +641,15 @@ function PairingLobby({
             <button
               className="btn btn-outline"
               style={{ width: 40, minHeight: 40, padding: 0 }}
-              onClick={() => declineInvite(inv.id)}
+              disabled={pendingId === inv.id}
+              onClick={async () => {
+                setPendingId(inv.id);
+                try {
+                  await declineInvite(inv.id);
+                } finally {
+                  setPendingId(null);
+                }
+              }}
               aria-label={`Decline invite from ${fromPlayer.display_name}`}
             >
               ✕
@@ -633,10 +657,16 @@ function PairingLobby({
             <button
               className="btn"
               style={{ width: 40, minHeight: 40, padding: 0 }}
+              disabled={pendingId === inv.id}
               onClick={async () => {
-                const result = await acceptInvite(inv.id);
-                if (result.ok) onPaired(result.teamId, result.pin);
-                else notify("That invite is no longer available.");
+                setPendingId(inv.id);
+                try {
+                  const result = await acceptInvite(inv.id);
+                  if (result.ok) onPaired(result.teamId, result.pin);
+                  else notify("That invite is no longer available.");
+                } finally {
+                  setPendingId(null);
+                }
               }}
               aria-label={`Accept invite from ${fromPlayer.display_name}`}
             >
@@ -656,13 +686,18 @@ function PairingLobby({
           <button
             className="btn"
             style={{ width: "auto", minHeight: "auto", padding: "10px 18px", fontSize: 15 }}
-            disabled={!!outgoing && outgoing.to_player_id !== p.id}
+            disabled={(!!outgoing && outgoing.to_player_id !== p.id) || pendingId === p.id}
             onClick={async () => {
-              if (outgoing?.to_player_id === p.id) {
-                await cancelInvite(outgoing.id);
-              } else {
-                const result = await sendInvite(me.id, p.id);
-                if (!result.ok) notify("You already have an outgoing invite.");
+              setPendingId(p.id);
+              try {
+                if (outgoing?.to_player_id === p.id) {
+                  await cancelInvite(outgoing.id);
+                } else {
+                  const result = await sendInvite(me.id, p.id);
+                  if (!result.ok) notify("You already have an outgoing invite.");
+                }
+              } finally {
+                setPendingId(null);
               }
             }}
           >
@@ -690,6 +725,8 @@ function Round1Flow({
   setMyChoice: (c: "share" | "steal" | null) => void;
   notify: (msg: string) => void;
 }) {
+  const [submitting, setSubmitting] = useState(false);
+
   if (!matchup) {
     return (
       <Stack>
@@ -747,14 +784,19 @@ function Round1Flow({
         </div>
         <button
           className="btn"
-          disabled={!myChoice}
+          disabled={!myChoice || submitting}
           onClick={async () => {
             if (!myChoice) return;
-            const result = await submitShareSteal(matchup.id, teamId, myChoice);
-            if (!result.ok) notify("Already submitted.");
+            setSubmitting(true);
+            try {
+              const result = await submitShareSteal(matchup.id, teamId, myChoice);
+              if (!result.ok) notify("Already submitted.");
+            } finally {
+              setSubmitting(false);
+            }
           }}
         >
-          Submit
+          {submitting ? "Submitting…" : "Submit"}
         </button>
       </Stack>
     );
