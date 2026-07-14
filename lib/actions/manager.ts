@@ -5,7 +5,13 @@ import { CARD_META } from "@/lib/game/rules";
 
 type ManagerRole = "ajan" | "michelle" | "gary";
 
-async function requireManager(allowed: ManagerRole[]): Promise<{ id: string; role: ManagerRole }> {
+/**
+ * All three managers have equal controls — Ajan/Michelle/Gary can each
+ * operate any checkpoint, confirm arrivals, verify the winner, and reset the
+ * game, so any one of them can cover for another on the day of. `role` is
+ * still returned so the audit log records who actually did what.
+ */
+async function requireManager(): Promise<{ id: string; role: ManagerRole }> {
   const session = await createSessionClient();
   const { data } = await session.auth.getUser();
   if (!data.user) throw new Error("Not authenticated");
@@ -16,7 +22,7 @@ async function requireManager(allowed: ManagerRole[]): Promise<{ id: string; rol
     .select("id, role")
     .eq("id", data.user.id)
     .single();
-  if (!profile || !allowed.includes(profile.role as ManagerRole)) {
+  if (!profile) {
     throw new Error("Unauthorized manager action");
   }
   return { id: profile.id, role: profile.role as ManagerRole };
@@ -60,7 +66,7 @@ async function applyHeartDelta(teamId: string, delta: number, sourceRound: strin
 }
 
 export async function recordClubsOutcome(teamAId: string, teamBId: string, outcome: "pass" | "fail") {
-  const manager = await requireManager(["ajan", "gary"]);
+  const manager = await requireManager();
   const admin = createAdminClient();
   const delta = outcome === "pass" ? 1 : -2;
   const relatedId = crypto.randomUUID();
@@ -76,7 +82,7 @@ export async function recordClubsOutcome(teamAId: string, teamBId: string, outco
 }
 
 export async function recordDiamondsPass(teamId: string) {
-  const manager = await requireManager(["michelle", "gary"]);
+  const manager = await requireManager();
   const admin = createAdminClient();
 
   await admin.from("collected_cards").insert({ team_id: teamId, card_code: "diamond2", awarded_by: manager.id }).select();
@@ -87,14 +93,14 @@ export async function recordDiamondsPass(teamId: string) {
 }
 
 export async function adjustHeartsManual(teamId: string, delta: number) {
-  const manager = await requireManager(["ajan", "michelle", "gary"]);
+  const manager = await requireManager();
   await applyHeartDelta(teamId, delta, "manual", null, manager.id);
   await logAction(manager.id, manager.role, "Manual heart adjustment", teamId, null, { delta });
   return { ok: true as const };
 }
 
 export async function confirmArrival(teamId: string) {
-  const manager = await requireManager(["gary"]);
+  const manager = await requireManager();
   const admin = createAdminClient();
 
   const { count } = await admin.from("finalists").select("id", { count: "exact", head: true });
@@ -136,7 +142,7 @@ export async function confirmArrival(teamId: string) {
 }
 
 export async function verifyWinner(teamId: string) {
-  const manager = await requireManager(["gary"]);
+  const manager = await requireManager();
   const admin = createAdminClient();
   const { data: team } = await admin.from("teams").select("event_id").eq("id", teamId).single();
   if (!team) return { ok: false as const, reason: "not_found" as const };
@@ -151,7 +157,7 @@ export async function verifyWinner(teamId: string) {
 }
 
 export async function undoWinnerVerification(eventId: string) {
-  const manager = await requireManager(["gary"]);
+  const manager = await requireManager();
   const admin = createAdminClient();
   await admin
     .from("winner_results")
@@ -163,7 +169,7 @@ export async function undoWinnerVerification(eventId: string) {
 }
 
 export async function closeGame(eventId: string) {
-  const manager = await requireManager(["gary"]);
+  const manager = await requireManager();
   const admin = createAdminClient();
   await admin.from("events").update({ status: "closed" }).eq("id", eventId);
   await logAction(manager.id, manager.role, "Closed game", null, null, null);
@@ -171,7 +177,7 @@ export async function closeGame(eventId: string) {
 }
 
 export async function createRandomMatchups() {
-  const manager = await requireManager(["gary"]);
+  const manager = await requireManager();
   const admin = createAdminClient();
 
   const { data: openMatchups } = await admin
@@ -202,6 +208,100 @@ export async function createRandomMatchups() {
 
   await logAction(manager.id, manager.role, "Created random Round 1 matchups", null, null, { count: created.length });
   return { ok: true as const, created: created.length, leftoverTeam: shuffled.length % 2 === 1 };
+}
+
+/**
+ * Clears all pairing/game state (teams, matchups, hearts, cards, checkpoints,
+ * finalists, winner results, audit log) back to "roster exists, nobody's
+ * paired up yet" — while keeping the roster, the active event, and manager
+ * accounts/PINs intact. Mirrors scripts/reset_test_run.sql.
+ */
+export async function resetGameState() {
+  const manager = await requireManager();
+  const admin = createAdminClient();
+
+  const all = () => admin.from("teams").update({ active_controller_device_id: null }).not("id", "is", null);
+  await all();
+
+  await admin.from("manager_actions").delete().not("id", "is", null);
+  await admin.from("winner_results").delete().not("id", "is", null);
+  await admin.from("finalists").delete().not("id", "is", null);
+  await admin.from("share_steal_submissions").delete().not("id", "is", null);
+  await admin.from("matchups").delete().not("id", "is", null);
+  await admin.from("checkpoint_arrivals").delete().not("id", "is", null);
+  await admin.from("collected_cards").delete().not("id", "is", null);
+  await admin.from("heart_transactions").delete().not("id", "is", null);
+  await admin.from("device_sessions").delete().not("id", "is", null);
+  await admin.from("team_members").delete().not("id", "is", null);
+  await admin.from("teams").delete().not("id", "is", null);
+  await admin.from("pair_invites").delete().not("id", "is", null);
+  await admin.from("player_claims").delete().not("id", "is", null);
+  await admin.from("players").update({ claim_status: "available", claimed_by_auth_id: null }).not("id", "is", null);
+
+  await logAction(manager.id, manager.role, "Reset game state", null, null, null);
+  return { ok: true as const };
+}
+
+/** Fixes a typo'd roster name. Keeps any team's cached display name in sync. */
+export async function updatePlayerName(playerId: string, newName: string) {
+  const manager = await requireManager();
+  const admin = createAdminClient();
+  const trimmed = newName.trim();
+  if (!trimmed) return { ok: false as const, reason: "invalid_name" as const };
+
+  const { data: before } = await admin.from("players").select("display_name").eq("id", playerId).single();
+  const { error } = await admin.from("players").update({ display_name: trimmed }).eq("id", playerId);
+  if (error) return { ok: false as const, reason: "conflict" as const };
+
+  const { data: membership } = await admin
+    .from("team_members")
+    .select("team_id")
+    .eq("player_id", playerId)
+    .maybeSingle();
+  if (membership) {
+    const { data: memberRows } = await admin
+      .from("team_members")
+      .select("player_id")
+      .eq("team_id", membership.team_id);
+    const memberIds = (memberRows ?? []).map((m) => m.player_id);
+    const { data: playersData } = await admin.from("players").select("display_name").in("id", memberIds);
+    const names = (playersData ?? []).map((p) => p.display_name);
+    if (names.length) {
+      await admin.from("teams").update({ name: names.join(" + ") }).eq("id", membership.team_id);
+    }
+  }
+
+  await logAction(manager.id, manager.role, "Renamed player", null, { name: before?.display_name }, { name: trimmed });
+  return { ok: true as const };
+}
+
+/**
+ * Removes a team entirely (mispairing, duplicate, etc.) and frees its
+ * members back to the available roster so they can be re-paired. All the
+ * team's matchups/cards/hearts/checkpoints/finalist-or-winner records go
+ * with it (cascading FKs) rather than being left orphaned.
+ */
+export async function deleteTeam(teamId: string) {
+  const manager = await requireManager();
+  const admin = createAdminClient();
+
+  const { data: team } = await admin.from("teams").select("name").eq("id", teamId).maybeSingle();
+  if (!team) return { ok: false as const, reason: "not_found" as const };
+
+  const { data: memberRows } = await admin.from("team_members").select("player_id").eq("team_id", teamId);
+  const playerIds = (memberRows ?? []).map((m) => m.player_id);
+
+  await admin.from("teams").update({ active_controller_device_id: null }).eq("id", teamId);
+  const { error } = await admin.from("teams").delete().eq("id", teamId);
+  if (error) return { ok: false as const, reason: "delete_failed" as const };
+
+  if (playerIds.length) {
+    await admin.from("player_claims").delete().in("player_id", playerIds);
+    await admin.from("players").update({ claim_status: "available", claimed_by_auth_id: null }).in("id", playerIds);
+  }
+
+  await logAction(manager.id, manager.role, "Removed team", null, { teamId, name: team.name }, null);
+  return { ok: true as const };
 }
 
 export { CARD_META };

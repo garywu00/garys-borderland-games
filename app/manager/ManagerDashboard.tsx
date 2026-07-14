@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { PortraitPair } from "@/components/Portrait";
+import { PortraitPair, Portrait } from "@/components/Portrait";
 import {
   recordClubsOutcome,
   recordDiamondsPass,
@@ -10,17 +10,24 @@ import {
   confirmArrival,
   verifyWinner,
   createRandomMatchups,
+  resetGameState,
+  updatePlayerName,
+  deleteTeam,
 } from "@/lib/actions/manager";
 
 type Team = { id: string; name: string; hearts_cached: number; status: string; event_id: string };
 type Finalist = { team_id: string; slot: number };
+type Player = { id: string; display_name: string; claim_status: string };
+type Tab = "clubs" | "diamonds" | "overview";
 
 export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michelle" | "gary"; displayName: string }) {
   const supabase = createClient();
   const [teams, setTeams] = useState<Team[]>([]);
   const [finalists, setFinalists] = useState<Finalist[]>([]);
+  const [players, setPlayers] = useState<Player[]>([]);
   const [toast, setToastMsg] = useState<string | null>(null);
   const [selectedClubsTeam, setSelectedClubsTeam] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<Tab>(role === "ajan" ? "clubs" : role === "michelle" ? "diamonds" : "overview");
 
   function notify(msg: string) {
     setToastMsg(msg);
@@ -32,6 +39,8 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
     setTeams(data ?? []);
     const { data: f } = await supabase.from("finalists").select("team_id, slot");
     setFinalists(f ?? []);
+    const { data: p } = await supabase.from("players").select("id, display_name, claim_status").order("display_name");
+    setPlayers(p ?? []);
   }, [supabase]);
 
   useEffect(() => {
@@ -40,6 +49,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
       .channel("manager-app")
       .on("postgres_changes", { event: "*", schema: "public", table: "teams" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "finalists" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "players" }, refresh)
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
@@ -51,9 +61,15 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
     window.location.reload();
   }
 
+  const TABS: { id: Tab; label: string }[] = [
+    { id: "clubs", label: "Clubs" },
+    { id: "diamonds", label: "Diamonds" },
+    { id: "overview", label: "Overview" },
+  ];
+
   return (
     <main style={{ maxWidth: 560, margin: "0 auto", padding: "16px 16px 40px" }}>
-      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 4px", borderBottom: "1px solid rgba(10,10,10,0.15)", marginBottom: 18 }}>
+      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 4px", borderBottom: "1px solid rgba(10,10,10,0.15)", marginBottom: 12 }}>
         <div>
           <div style={{ fontSize: 16 }}>{displayName}</div>
           <div className="label">{role}</div>
@@ -63,13 +79,37 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
         </button>
       </header>
 
+      <nav style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setActiveTab(t.id)}
+            aria-current={activeTab === t.id}
+            style={{
+              flex: 1,
+              padding: "10px 8px",
+              fontSize: 14,
+              border: "1.6px solid var(--line)",
+              background: activeTab === t.id ? "var(--btn-bg)" : "transparent",
+              color: activeTab === t.id ? "var(--btn-fg)" : "var(--fg)",
+              cursor: "pointer",
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+      <p style={{ fontSize: 12, color: "var(--muted)", marginBottom: 16, textAlign: "center" }}>
+        Any manager can work any tab — swap freely if someone needs to cover another checkpoint.
+      </p>
+
       {toast && (
         <div style={{ background: "var(--fg)", color: "var(--bg)", padding: "12px 16px", fontSize: 14, textAlign: "center", marginBottom: 16 }}>
           {toast}
         </div>
       )}
 
-      {role === "ajan" && (
+      {activeTab === "clubs" && (
         <ClubsView
           teams={teams.filter((t) => t.status === "round2")}
           selected={selectedClubsTeam}
@@ -82,7 +122,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
         />
       )}
 
-      {role === "michelle" && (
+      {activeTab === "diamonds" && (
         <DiamondsView
           teams={teams.filter((t) => t.status === "round3")}
           onPass={async (id) => {
@@ -96,10 +136,11 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
         />
       )}
 
-      {role === "gary" && (
-        <GaryView
+      {activeTab === "overview" && (
+        <OverviewView
           teams={teams}
           finalists={finalists}
+          players={players}
           onCreateMatchups={async () => {
             const result = await createRandomMatchups();
             notify(result.ok ? `Created ${result.created} matchup(s).` : "Could not create matchups.");
@@ -115,6 +156,18 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
           onAdjust={async (id, delta) => {
             await adjustHeartsManual(id, delta);
             notify(`Adjusted by ${delta > 0 ? "+" : ""}${delta}.`);
+          }}
+          onResetGame={async () => {
+            await resetGameState();
+            notify("Game state reset. Roster, event, and manager PINs kept.");
+          }}
+          onRenamePlayer={async (id, name) => {
+            const result = await updatePlayerName(id, name);
+            notify(result.ok ? "Name updated." : "Could not update name.");
+          }}
+          onRemoveTeam={async (id) => {
+            const result = await deleteTeam(id);
+            notify(result.ok ? "Team removed. Members are available again." : "Could not remove team.");
           }}
         />
       )}
@@ -254,21 +307,30 @@ function DiamondsView({
   );
 }
 
-function GaryView({
+function OverviewView({
   teams,
   finalists,
+  players,
   onCreateMatchups,
   onConfirmArrival,
   onVerifyWinner,
   onAdjust,
+  onResetGame,
+  onRenamePlayer,
+  onRemoveTeam,
 }: {
   teams: Team[];
   finalists: Finalist[];
+  players: Player[];
   onCreateMatchups: () => void;
   onConfirmArrival: (id: string) => void;
   onVerifyWinner: (id: string) => void;
   onAdjust: (id: string, delta: number) => void;
+  onResetGame: () => void;
+  onRenamePlayer: (id: string, name: string) => void;
+  onRemoveTeam: (id: string) => void;
 }) {
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
   const waiting = teams.filter((t) => t.status === "final_waiting");
   const finalistTeams = finalists
     .map((f) => ({ ...f, team: teams.find((t) => t.id === f.team_id) }))
@@ -277,7 +339,7 @@ function GaryView({
 
   return (
     <div>
-      <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, textAlign: "center", marginBottom: 16 }}>Final Game</h2>
+      <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, textAlign: "center", marginBottom: 16 }}>Overview</h2>
 
       <button className="btn btn-outline" style={{ marginBottom: 20 }} onClick={onCreateMatchups}>
         Create random Round 1 matchups
@@ -285,13 +347,13 @@ function GaryView({
 
       <p className="label">Top 3 — Finalists ({finalists.length} / 3)</p>
       {finalistTeams.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>No finalists confirmed yet.</p>}
-      {finalistTeams.map((f, idx) => (
+      {finalistTeams.map((f) => (
         <TeamRow
           key={f.team.id}
           team={f.team}
           right={
             <button className="btn" style={{ width: "auto", minHeight: "auto", padding: "10px 16px", fontSize: 13 }} onClick={() => onVerifyWinner(f.team.id)}>
-              {idx === 0 ? "Mark winner" : "Mark winner"}
+              Mark winner
             </button>
           }
         />
@@ -320,6 +382,7 @@ function GaryView({
       <p className="label" style={{ marginTop: 20 }}>
         All teams ({teams.length})
       </p>
+      {teams.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>No teams yet.</p>}
       {teams
         .slice()
         .sort((a, b) => b.hearts_cached - a.hearts_cached)
@@ -328,19 +391,95 @@ function GaryView({
             key={t.id}
             team={t}
             right={
-              <button
-                className="btn-outline"
-                style={{ width: "auto", minHeight: "auto", padding: "8px 10px", fontSize: 12, border: "1.6px solid var(--line)" }}
-                onClick={() => {
-                  const delta = Number(prompt("Heart adjustment (e.g. -1 or 2)"));
-                  if (!Number.isNaN(delta) && delta !== 0) onAdjust(t.id, delta);
-                }}
-              >
-                Adjust
-              </button>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <button
+                  className="btn-outline"
+                  style={{ width: "auto", minHeight: "auto", padding: "8px 10px", fontSize: 12, border: "1.6px solid var(--line)" }}
+                  onClick={() => {
+                    const delta = Number(prompt("Heart adjustment (e.g. -1 or 2)"));
+                    if (!Number.isNaN(delta) && delta !== 0) onAdjust(t.id, delta);
+                  }}
+                >
+                  Adjust
+                </button>
+                <button
+                  className="btn-outline"
+                  style={{ width: "auto", minHeight: "auto", padding: "8px 10px", fontSize: 12, border: "1.6px solid var(--accent)", color: "var(--accent)" }}
+                  onClick={() => {
+                    if (confirm(`Remove team "${t.name}"? Members become available to re-pair.`)) onRemoveTeam(t.id);
+                  }}
+                >
+                  Remove
+                </button>
+              </div>
             }
           />
         ))}
+
+      <p className="label" style={{ marginTop: 20 }}>
+        Roster ({players.length})
+      </p>
+      {players.map((p) => (
+        <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 0", borderBottom: "1px solid rgba(10,10,10,0.1)" }}>
+          <Portrait name={p.display_name} size={32} />
+          <div style={{ flex: 1, fontSize: 15 }}>{p.display_name}</div>
+          <span className="label" style={{ marginRight: 8 }}>{p.claim_status}</span>
+          <button
+            className="btn-outline"
+            style={{ width: "auto", minHeight: "auto", padding: "6px 10px", fontSize: 12, border: "1.6px solid var(--line)" }}
+            onClick={() => {
+              const newName = prompt("New name", p.display_name);
+              if (newName && newName.trim() && newName.trim() !== p.display_name) onRenamePlayer(p.id, newName.trim());
+            }}
+          >
+            Edit name
+          </button>
+        </div>
+      ))}
+
+      <button
+        className="btn"
+        style={{ marginTop: 28, width: "100%", background: "var(--accent)", borderColor: "var(--accent)" }}
+        onClick={() => setShowResetConfirm(true)}
+      >
+        Reset game
+      </button>
+      {showResetConfirm && (
+        <ResetConfirmModal
+          onClose={() => setShowResetConfirm(false)}
+          onConfirm={() => {
+            onResetGame();
+            setShowResetConfirm(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ResetConfirmModal({ onClose, onConfirm }: { onClose: () => void; onConfirm: () => void }) {
+  const [typed, setTyped] = useState("");
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.55)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 50 }}>
+      <div style={{ background: "var(--bg)", width: "100%", maxWidth: 560, padding: 22 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
+          <h2 style={{ fontWeight: 400, fontSize: 22 }}>Reset game?</h2>
+          <button className="btn-outline" style={{ width: 36, height: 36, border: "1.6px solid var(--line)" }} onClick={onClose}>
+            ✕
+          </button>
+        </div>
+        <p style={{ fontSize: 14, marginBottom: 16 }}>
+          This clears every team, pairing, matchup, heart, card, checkpoint, finalist, winner result, and the audit
+          log. It keeps the roster, the event, and manager PINs. This cannot be undone.
+        </p>
+        <p className="label" style={{ textAlign: "left" }}>
+          Type RESET to confirm
+        </p>
+        <input type="text" value={typed} onChange={(e) => setTyped(e.target.value)} style={{ marginTop: 8, marginBottom: 16 }} />
+        <button className="btn" style={{ width: "100%", background: "var(--accent)", borderColor: "var(--accent)" }} disabled={typed !== "RESET"} onClick={onConfirm}>
+          Reset game
+        </button>
+      </div>
     </div>
   );
 }
