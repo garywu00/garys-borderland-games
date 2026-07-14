@@ -1,6 +1,7 @@
 import { createAdminClient, createSessionClient } from "@/lib/supabase/server";
 import { ManagerLogin } from "./ManagerLogin";
 import { ManagerDashboard } from "./ManagerDashboard";
+import { NotAManager } from "./NotAManager";
 
 export default async function ManagerPage() {
   const session = await createSessionClient();
@@ -18,14 +19,7 @@ export default async function ManagerPage() {
     .maybeSingle();
 
   if (!profile) {
-    return (
-      <main style={{ display: "flex", minHeight: "100dvh", alignItems: "center", justifyContent: "center", padding: 24 }}>
-        <p style={{ textAlign: "center", color: "var(--muted)", maxWidth: 320 }}>
-          You&apos;re signed in, but this email isn&apos;t set up as a manager. Ask Gary to add you to
-          manager_profiles.
-        </p>
-      </main>
-    );
+    return <NotAManager />;
   }
 
   return <ManagerDashboard role={profile.role as "ajan" | "michelle" | "gary"} displayName={profile.display_name} />;
