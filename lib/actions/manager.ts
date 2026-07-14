@@ -303,6 +303,39 @@ export async function deleteTeam(teamId: string) {
   return { ok: true as const };
 }
 
+/**
+ * Releases a mistakenly-claimed name back to "available" so the right
+ * person can claim it — for the case where someone picked the wrong roster
+ * name before pairing up. Once a player has paired, use deleteTeam instead.
+ */
+export async function resetPlayerClaim(playerId: string) {
+  const manager = await requireManager();
+  const admin = createAdminClient();
+
+  const { data: membership } = await admin
+    .from("team_members")
+    .select("team_id")
+    .eq("player_id", playerId)
+    .maybeSingle();
+  if (membership) return { ok: false as const, reason: "already_paired" as const };
+
+  const { data: before } = await admin.from("players").select("display_name").eq("id", playerId).single();
+
+  await admin
+    .from("player_claims")
+    .update({ released_at: new Date().toISOString() })
+    .eq("player_id", playerId)
+    .is("released_at", null);
+
+  await admin
+    .from("players")
+    .update({ claim_status: "available", claimed_by_auth_id: null })
+    .eq("id", playerId);
+
+  await logAction(manager.id, manager.role, "Reset player claim", null, { name: before?.display_name }, null);
+  return { ok: true as const };
+}
+
 /** Adds a new roster entry mid-event, so late signups don't need a database change. */
 export async function addPlayer(name: string) {
   const manager = await requireManager();
