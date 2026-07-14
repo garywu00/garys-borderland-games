@@ -41,14 +41,11 @@ export function ManagerLogin() {
   return (
     <main style={{ display: "flex", minHeight: "100dvh", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 16, width: "100%", maxWidth: 360, alignItems: "center" }}>
-        <div style={{ textAlign: "center" }}>
-          <h1 style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 700, lineHeight: 1.2, margin: 0 }}>
-            GARY&apos;S 26TH
-          </h1>
-          <h1 style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 700, lineHeight: 1.2, margin: 0 }}>
-            BORDERLAND GAMES
-          </h1>
-        </div>
+        <img
+          src="/Gary_logo.svg"
+          alt="Gary's 26th Borderland Games"
+          style={{ width: "100%", maxWidth: 240, height: "auto" }}
+        />
         <p className="label">Manager sign in</p>
 
         {!selected ? (
