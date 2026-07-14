@@ -65,6 +65,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   const [uiStep, setUiStep] = useState<"landing" | "selfie" | "select-name" | "confirm" | "recovery">("landing");
   const [selfie, setSelfie] = useState<string | null>(null);
   const [pinShown, setPinShown] = useState<string | null>(null);
+  const [claimPinShown, setClaimPinShown] = useState<string | null>(null);
   const [myChoice, setMyChoice] = useState<"share" | "steal" | null>(null);
   const [toast, setToastMsg] = useState<string | null>(null);
 
@@ -101,6 +102,18 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     const { data } = await supabase.from("team_members").select("player_id");
     setPairedPlayerIds(new Set((data ?? []).map((m) => m.player_id)));
   }, [supabase]);
+
+  // Discovers a team the *other* pair member didn't create themselves — e.g.
+  // the inviter's device never calls acceptInvite, so it has no other way to
+  // learn a team now exists for them once the invitee accepts.
+  const refreshMyTeamMembership = useCallback(async () => {
+    if (!playerId || teamId) return;
+    const { data } = await supabase.from("team_members").select("team_id").eq("player_id", playerId).maybeSingle();
+    if (data) {
+      setTeamId(data.team_id);
+      saveLocal({ playerId, teamId: data.team_id });
+    }
+  }, [supabase, playerId, teamId]);
 
   const refreshTeam = useCallback(async () => {
     if (!teamId) return;
@@ -159,11 +172,21 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     if (!ready) return;
     refreshRoster();
     refreshPairedPlayers();
+    refreshMyTeamMembership();
     refreshTeam();
     refreshInvites();
     refreshCards();
     refreshFinalist();
-  }, [ready, refreshRoster, refreshPairedPlayers, refreshTeam, refreshInvites, refreshCards, refreshFinalist]);
+  }, [
+    ready,
+    refreshRoster,
+    refreshPairedPlayers,
+    refreshMyTeamMembership,
+    refreshTeam,
+    refreshInvites,
+    refreshCards,
+    refreshFinalist,
+  ]);
 
   useEffect(() => {
     refreshMatchup();
@@ -175,7 +198,10 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     const channel = supabase
       .channel("player-app")
       .on("postgres_changes", { event: "*", schema: "public", table: "players" }, refreshRoster)
-      .on("postgres_changes", { event: "*", schema: "public", table: "team_members" }, refreshPairedPlayers)
+      .on("postgres_changes", { event: "*", schema: "public", table: "team_members" }, () => {
+        refreshPairedPlayers();
+        refreshMyTeamMembership();
+      })
       .on("postgres_changes", { event: "*", schema: "public", table: "pair_invites" }, refreshInvites)
       .on("postgres_changes", { event: "*", schema: "public", table: "teams" }, refreshTeam)
       .on("postgres_changes", { event: "*", schema: "public", table: "matchups" }, refreshMatchup)
@@ -185,12 +211,57 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [ready, supabase, refreshRoster, refreshPairedPlayers, refreshInvites, refreshTeam, refreshMatchup, refreshCards, refreshFinalist]);
+  }, [
+    ready,
+    supabase,
+    refreshRoster,
+    refreshPairedPlayers,
+    refreshMyTeamMembership,
+    refreshInvites,
+    refreshTeam,
+    refreshMatchup,
+    refreshCards,
+    refreshFinalist,
+  ]);
 
   if (!ready) return null;
 
   // ---------- Registration ----------
   if (!playerId || !me) {
+    if (claimPinShown && me) {
+      return (
+        <Screen>
+          <Stack>
+            <Portrait name={me.display_name} photoUrl={selfie} size={96} />
+            <h2 style={{ fontWeight: 400, fontSize: 24 }}>Save this, just in case</h2>
+            <p style={{ fontSize: 15, textAlign: "center", maxWidth: 320 }}>
+              If you ever picked the wrong name by mistake, tell a manager this PIN and they can fix it for you.
+            </p>
+            <div className="label">Your recovery PIN</div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 40, letterSpacing: "0.3em" }}>{claimPinShown}</div>
+            <button
+              className="btn btn-outline"
+              onClick={() => {
+                navigator.clipboard?.writeText(claimPinShown);
+                notify("PIN copied.");
+              }}
+            >
+              Copy PIN
+            </button>
+            <button
+              className="btn"
+              onClick={() => {
+                setPlayerId(me.id);
+                saveLocal({ playerId: me.id, teamId: null });
+                setClaimPinShown(null);
+              }}
+            >
+              Got it, continue
+            </button>
+          </Stack>
+        </Screen>
+      );
+    }
     return (
       <Screen>
         {uiStep === "landing" && (
@@ -237,8 +308,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
               onClick={async () => {
                 const result = await claimPlayer(me.id);
                 if (result.ok) {
-                  setPlayerId(me.id);
-                  saveLocal({ playerId: me.id, teamId: null });
+                  setClaimPinShown(result.recoveryPin);
                 } else {
                   notify("That name was just claimed by someone else.");
                   setUiStep("select-name");
@@ -328,7 +398,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   // ---------- In-game ----------
   return (
     <Screen>
-      <PlayerHeader team={team} me={me} />
+      <PlayerHeader team={team} />
       {team.status === "round1" && (
         <Round1Flow
           teamId={teamId}
@@ -439,15 +509,90 @@ function Toast({ msg }: { msg: string | null }) {
   );
 }
 
-function PlayerHeader({ team, me }: { team: Team; me: Player }) {
+function PlayerHeader({ team }: { team: Team }) {
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
   return (
     <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: 16, borderBottom: "1px solid rgba(10,10,10,0.15)", marginBottom: 20 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-        <PortraitPair names={[me.display_name]} size={32} />
-        <span style={{ fontSize: 16 }}>{team.name}</span>
+        <PortraitPair names={team.name.split(" + ")} size={32} />
+        <div>
+          <div style={{ fontSize: 16 }}>{team.name}</div>
+          <div style={{ fontSize: 14 }}>♥ {team.hearts_cached}</div>
+        </div>
       </div>
-      <div style={{ fontSize: 16 }}>♥ {team.hearts_cached}</div>
+      <button
+        className="btn-outline"
+        style={{ width: 40, height: 40, minHeight: 40, padding: 0, border: "1.6px solid var(--line)" }}
+        aria-label="Leaderboard"
+        onClick={() => setShowLeaderboard(true)}
+      >
+        🏆
+      </button>
+      {showLeaderboard && <LeaderboardModal myTeamId={team.id} onClose={() => setShowLeaderboard(false)} />}
     </header>
+  );
+}
+
+function LeaderboardModal({ myTeamId, onClose }: { myTeamId: string; onClose: () => void }) {
+  const [teams, setTeams] = useState<Team[]>([]);
+  useEffect(() => {
+    const supabase = createClient();
+    supabase
+      .from("teams")
+      .select("id, name, hearts_cached, status")
+      .then(({ data }) => setTeams(data ?? []));
+  }, []);
+
+  const sorted = [...teams].sort((a, b) => b.hearts_cached - a.hearts_cached);
+  const top3 = sorted.slice(0, 3);
+  const rest = sorted.slice(3);
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.55)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 50 }}>
+      <div style={{ background: "var(--bg)", width: "100%", maxWidth: 428, maxHeight: "85vh", overflowY: "auto", padding: 22 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <h2 style={{ fontWeight: 400, fontSize: 22 }}>Leaderboard</h2>
+          <button className="btn-outline" style={{ width: 36, height: 36, border: "1.6px solid var(--line)" }} onClick={onClose}>
+            ✕
+          </button>
+        </div>
+        <p className="label">Top 3</p>
+        {top3.map((t) => (
+          <LeaderboardRow key={t.id} team={t} highlight={t.id === myTeamId} />
+        ))}
+        {rest.length > 0 && (
+          <>
+            <p className="label" style={{ marginTop: 20 }}>
+              Remaining pairs
+            </p>
+            {rest.map((t) => (
+              <LeaderboardRow key={t.id} team={t} highlight={t.id === myTeamId} />
+            ))}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LeaderboardRow({ team, highlight }: { team: Team; highlight: boolean }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 14,
+        padding: "12px 0",
+        borderBottom: "1px solid rgba(10,10,10,0.1)",
+        background: highlight ? "var(--portrait-bg)" : "transparent",
+      }}
+    >
+      <PortraitPair names={team.name.split(" + ")} size={32} />
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 15 }}>{team.name}</div>
+        <div style={{ fontSize: 13 }}>♥ {team.hearts_cached}</div>
+      </div>
+    </div>
   );
 }
 
@@ -727,12 +872,30 @@ function Round1Flow({
   notify: (msg: string) => void;
 }) {
   const [submitting, setSubmitting] = useState(false);
+  const [rulesSeen, setRulesSeen] = useState(false);
 
   if (!matchup) {
     return (
       <Stack>
         <CardDisplay code="heart4" width={180} />
         <p className="label">Waiting for Round 1 matchups to be assigned</p>
+      </Stack>
+    );
+  }
+
+  if (!rulesSeen) {
+    return (
+      <Stack>
+        <p className="label">Share or steal — how to play</p>
+        <p style={{ fontSize: 15, textAlign: "center", maxWidth: 320 }}>
+          You&apos;ll be randomly assigned a pair to play against. Without consulting the opposing pair, decide
+          whether you&apos;d like to share or steal a pot of 2 extra hearts. If both pairs select Share, each pair
+          gains 1 heart. If only one pair selects Steal, that pair gains 2 hearts and the pair that selected Share
+          gains nothing. If both pairs select Steal, both pairs lose 1 heart.
+        </p>
+        <button className="btn" onClick={() => setRulesSeen(true)}>
+          I&apos;m ready
+        </button>
       </Stack>
     );
   }
