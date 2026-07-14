@@ -41,7 +41,14 @@ export function ManagerLogin() {
   return (
     <main style={{ display: "flex", minHeight: "100dvh", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 16, width: "100%", maxWidth: 360, alignItems: "center" }}>
-        <h1 style={{ fontFamily: "var(--font-display)", fontSize: 32, fontWeight: 700 }}>GARY</h1>
+        <div style={{ textAlign: "center" }}>
+          <h1 style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 700, lineHeight: 1.2, margin: 0 }}>
+            GARY&apos;S 26TH
+          </h1>
+          <h1 style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 700, lineHeight: 1.2, margin: 0 }}>
+            BORDERLAND GAMES
+          </h1>
+        </div>
         <p className="label">Manager sign in</p>
 
         {!selected ? (
