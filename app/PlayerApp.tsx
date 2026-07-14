@@ -196,10 +196,11 @@ export function PlayerApp({ eventId }: { eventId: string }) {
         {uiStep === "landing" && (
           <Stack>
             <div style={{ textAlign: "center" }}>
-              <div style={{ fontFamily: "var(--font-display)", fontSize: 48, fontWeight: 700 }}>GARY</div>
-              <div className="label" style={{ fontFamily: "var(--font-display)", fontSize: 16, letterSpacing: "0.14em" }}>
-                In Borderland
-              </div>
+              <img
+                src="/Gary_logo.svg"
+                alt="Gary's 26th Borderland Games"
+                style={{ width: "100%", maxWidth: 340, height: "auto" }}
+              />
             </div>
             <button className="btn" onClick={() => setUiStep("selfie")}>
               Enter Borderland
