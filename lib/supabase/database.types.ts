@@ -419,6 +419,7 @@ export type Database = {
           auth_id: string
           claimed_at: string
           id: string
+          pin: string | null
           player_id: string
           released_at: string | null
         }
@@ -426,6 +427,7 @@ export type Database = {
           auth_id: string
           claimed_at?: string
           id?: string
+          pin?: string | null
           player_id: string
           released_at?: string | null
         }
@@ -433,6 +435,7 @@ export type Database = {
           auth_id?: string
           claimed_at?: string
           id?: string
+          pin?: string | null
           player_id?: string
           released_at?: string | null
         }
