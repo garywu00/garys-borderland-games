@@ -264,6 +264,10 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   if (!teamId || !team) {
     return (
       <Screen>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, paddingBottom: 16, borderBottom: "1px solid rgba(10,10,10,0.15)", marginBottom: 20 }}>
+          <Portrait name={me.display_name} photoUrl={selfie} size={40} />
+          <div style={{ fontSize: 16 }}>{me.display_name}</div>
+        </div>
         <PairingLobby
           me={me}
           players={players}

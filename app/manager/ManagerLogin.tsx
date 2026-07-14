@@ -19,15 +19,22 @@ export function ManagerLogin() {
     if (!selected || pin.length !== 4) return;
     setSubmitting(true);
     setError(null);
-    const result = await managerPinLogin(selected, pin);
-    setSubmitting(false);
-    if (result.ok) {
-      window.location.reload();
-    } else if (result.reason === "incorrect_pin") {
-      setError("Incorrect PIN. Try again.");
-      setPin("");
-    } else {
-      setError("Something went wrong. Try again.");
+    try {
+      const result = await managerPinLogin(selected, pin);
+      if (result.ok) {
+        window.location.reload();
+        return;
+      }
+      if (result.reason === "incorrect_pin") {
+        setError("Incorrect PIN. Try again.");
+        setPin("");
+      } else {
+        setError("Something went wrong. Try again.");
+      }
+    } catch {
+      setError("Connection issue — try again.");
+    } finally {
+      setSubmitting(false);
     }
   }
 
