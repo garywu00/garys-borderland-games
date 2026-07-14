@@ -91,6 +91,35 @@ export async function recordDiamondsPass(teamId: string) {
   return { ok: true as const };
 }
 
+/**
+ * For the leftover team when Round 1 has an odd number of pairs and one has
+ * no opponent to matchup against. Awards the same outcome as a mutual
+ * Share (+1 heart, 4♥ card) and advances them, rather than leaving them
+ * stuck waiting indefinitely.
+ */
+export async function giveByeRound1(teamId: string) {
+  const manager = await requireManager();
+  const admin = createAdminClient();
+
+  const { data: team } = await admin.from("teams").select("status").eq("id", teamId).maybeSingle();
+  if (!team || team.status !== "round1") return { ok: false as const, reason: "not_found" as const };
+
+  const { data: activeMatchup } = await admin
+    .from("matchups")
+    .select("id")
+    .or(`team_a_id.eq.${teamId},team_b_id.eq.${teamId}`)
+    .neq("status", "resolved")
+    .maybeSingle();
+  if (activeMatchup) return { ok: false as const, reason: "has_opponent" as const };
+
+  await applyHeartDelta(teamId, 1, "round1", null, manager.id);
+  await admin.from("collected_cards").insert({ team_id: teamId, card_code: "heart4", awarded_by: manager.id }).select();
+  await admin.from("teams").update({ status: "round2" }).eq("id", teamId);
+
+  await logAction(manager.id, manager.role, "Gave Round 1 bye (no opponent)", teamId, null, { delta: 1 });
+  return { ok: true as const };
+}
+
 export async function adjustHeartsManual(teamId: string, delta: number) {
   const manager = await requireManager();
   await applyHeartDelta(teamId, delta, "manual", null, manager.id);

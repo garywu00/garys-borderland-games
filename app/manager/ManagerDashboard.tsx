@@ -16,6 +16,7 @@ import {
   addPlayer,
   resetPlayerClaim,
   undoFinalistConfirmation,
+  giveByeRound1,
 } from "@/lib/actions/manager";
 
 type Team = { id: string; name: string; hearts_cached: number; status: string; event_id: string };
@@ -158,10 +159,20 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
             if (!result.ok) {
               notify("Could not create matchups.");
             } else if (result.leftoverTeam) {
-              notify(`Created ${result.created} matchup(s). One pair had no opponent — pair a trio or wait for more teams.`);
+              notify(`Created ${result.created} matchup(s). One pair had no opponent — give them a bye below, or wait and re-run this.`);
             } else {
               notify(`Created ${result.created} matchup(s).`);
             }
+          }}
+          onGiveBye={async (id) => {
+            const result = await giveByeRound1(id);
+            notify(
+              result.ok
+                ? "Bye given — advanced to Round 2 with +1 heart."
+                : result.reason === "has_opponent"
+                  ? "This team already has an opponent — use the normal outcome instead."
+                  : "Could not give bye.",
+            );
           }}
         />
       )}
@@ -263,7 +274,15 @@ function TeamRow({ team, right }: { team: Team; right?: React.ReactNode }) {
   );
 }
 
-function HeartsView({ teams, onCreateMatchups }: { teams: Team[]; onCreateMatchups: () => void }) {
+function HeartsView({
+  teams,
+  onCreateMatchups,
+  onGiveBye,
+}: {
+  teams: Team[];
+  onCreateMatchups: () => void;
+  onGiveBye: (id: string) => void;
+}) {
   return (
     <div>
       <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, textAlign: "center", marginBottom: 16 }}>4 of Hearts — Round 1</h2>
@@ -273,7 +292,23 @@ function HeartsView({ teams, onCreateMatchups }: { teams: Team[]; onCreateMatchu
       <p className="label">Pairs at this round ({teams.length})</p>
       {teams.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>No pairs currently in Round 1.</p>}
       {teams.map((t) => (
-        <TeamRow key={t.id} team={t} />
+        <TeamRow
+          key={t.id}
+          team={t}
+          right={
+            <button
+              className="btn-outline"
+              style={{ width: "auto", minHeight: "auto", padding: "8px 10px", fontSize: 12, border: "1.6px solid var(--line)" }}
+              onClick={() => {
+                if (confirm(`Give ${t.name} a bye? Use this only if they have no opponent — awards +1 heart and the 4♥ card, then advances them to Round 2.`)) {
+                  onGiveBye(t.id);
+                }
+              }}
+            >
+              Give bye
+            </button>
+          }
+        />
       ))}
     </div>
   );
