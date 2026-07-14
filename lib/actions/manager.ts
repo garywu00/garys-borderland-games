@@ -1,7 +1,6 @@
 "use server";
 
 import { createAdminClient, createSessionClient } from "@/lib/supabase/server";
-import { CARD_META } from "@/lib/game/rules";
 
 type ManagerRole = "ajan" | "michelle" | "gary";
 
@@ -320,5 +319,3 @@ export async function addPlayer(name: string) {
   await logAction(manager.id, manager.role, "Added player", null, null, { name: trimmed });
   return { ok: true as const };
 }
-
-export { CARD_META };
