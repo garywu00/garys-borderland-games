@@ -37,9 +37,10 @@ export async function claimPlayer(playerId: string) {
     return { ok: false as const, reason: "already_claimed" as const };
   }
 
+  const pin = generatePin();
   const { error: insertErr } = await admin
     .from("player_claims")
-    .insert({ player_id: playerId, auth_id: authId });
+    .insert({ player_id: playerId, auth_id: authId, pin });
   if (insertErr) return { ok: false as const, reason: "already_claimed" as const };
 
   await admin
@@ -47,7 +48,7 @@ export async function claimPlayer(playerId: string) {
     .update({ claim_status: "claimed", claimed_by_auth_id: authId })
     .eq("id", playerId);
 
-  return { ok: true as const };
+  return { ok: true as const, recoveryPin: pin };
 }
 
 export async function recoverWithPin(teamId: string, pin: string) {
