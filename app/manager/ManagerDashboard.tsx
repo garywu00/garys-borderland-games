@@ -41,9 +41,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
   const [claims, setClaims] = useState<Claim[]>([]);
   const [recentActions, setRecentActions] = useState<ActivityEntry[]>([]);
   const [toast, setToastMsg] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>(
-    role === "ajan" ? "clubs" : role === "michelle" ? "diamonds" : role === "gary" ? "spades" : "overview",
-  );
+  const [activeTab, setActiveTab] = useState<Tab>("overview");
 
   function notify(msg: string) {
     setToastMsg(msg);
