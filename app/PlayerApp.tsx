@@ -586,7 +586,7 @@ function LeaderboardModal({ myTeamId, onClose }: { myTeamId: string; onClose: ()
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.55)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 50 }}>
-      <div style={{ background: "var(--bg)", width: "100%", maxWidth: 428, maxHeight: "85vh", overflowY: "auto", padding: 22 }}>
+      <div style={{ background: "var(--bg)", width: "100%", maxHeight: "85vh", overflowY: "auto", padding: 22 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <h2 style={{ fontWeight: 400, fontSize: 22 }}>Leaderboard</h2>
           <button className="btn-outline" style={{ width: 36, height: 36, border: "1.6px solid var(--line)" }} onClick={onClose}>
@@ -619,14 +619,17 @@ function LeaderboardRow({ team, highlight }: { team: Team; highlight: boolean })
         display: "flex",
         alignItems: "center",
         gap: 14,
-        padding: "12px 0",
+        padding: "12px 4px",
         borderBottom: "1px solid rgba(10,10,10,0.1)",
-        background: highlight ? "var(--portrait-bg)" : "transparent",
+        borderLeft: highlight ? "3px solid var(--accent)" : "3px solid transparent",
       }}
     >
       <PortraitPair names={team.name.split(" + ")} size={32} />
       <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 15 }}>{team.name}</div>
+        <div style={{ fontSize: 15, fontWeight: highlight ? 700 : 400 }}>
+          {team.name}
+          {highlight && <span style={{ marginLeft: 8, fontSize: 11, color: "var(--accent)" }}>YOU</span>}
+        </div>
         <div style={{ fontSize: 13 }}>♥ {team.hearts_cached}</div>
       </div>
     </div>
