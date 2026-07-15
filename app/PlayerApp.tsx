@@ -257,6 +257,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
             <div style={{ fontFamily: "var(--font-mono)", fontSize: 40, letterSpacing: "0.3em" }}>{claimPinShown}</div>
             <button
               className="btn btn-outline"
+              style={{ width: "100%" }}
               onClick={() => {
                 navigator.clipboard?.writeText(claimPinShown);
                 notify("PIN copied.");
@@ -266,6 +267,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
             </button>
             <button
               className="btn"
+              style={{ width: "100%" }}
               onClick={() => {
                 setPlayerId(me.id);
                 saveLocal({ playerId: me.id, teamId: null });
@@ -289,7 +291,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
                 style={{ width: "100%", maxWidth: 340, height: "auto" }}
               />
             </div>
-            <button className="btn" onClick={() => setUiStep("selfie")}>
+            <button className="btn" style={{ width: "100%" }} onClick={() => setUiStep("selfie")}>
               Enter Borderland
             </button>
           </Stack>
@@ -321,6 +323,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
             <h2 style={{ fontWeight: 400, fontSize: 28 }}>Hi, {me.display_name.split(" ")[0]}!</h2>
             <button
               className="btn"
+              style={{ width: "100%" }}
               onClick={async () => {
                 const result = await claimPlayer(me.id);
                 if (result.ok) {
@@ -333,7 +336,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
             >
               Yes, continue
             </button>
-            <button className="btn btn-outline" onClick={() => setUiStep("select-name")}>
+            <button className="btn btn-outline" style={{ width: "100%" }} onClick={() => setUiStep("select-name")}>
               Not me
             </button>
           </Stack>
@@ -395,6 +398,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
           <div style={{ fontFamily: "var(--font-mono)", fontSize: 40, letterSpacing: "0.3em" }}>{pinShown}</div>
           <button
             className="btn btn-outline"
+            style={{ width: "100%" }}
             onClick={() => {
               navigator.clipboard?.writeText(pinShown);
               notify("PIN copied.");
@@ -402,7 +406,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
           >
             Copy PIN
           </button>
-          <button className="btn" onClick={() => setPinShown(null)}>
+          <button className="btn" style={{ width: "100%" }} onClick={() => setPinShown(null)}>
             Start Game
           </button>
         </Stack>
@@ -684,10 +688,10 @@ function SelfieStep({ onDone }: { onDone: (photo: string | null) => void }) {
           }}
         />
       </div>
-      <button className="btn" onClick={capture}>
+      <button className="btn" style={{ width: "100%" }} onClick={capture}>
         Take Photo
       </button>
-      <button className="btn btn-outline" onClick={() => onDone(null)}>
+      <button className="btn btn-outline" style={{ width: "100%" }} onClick={() => onDone(null)}>
         Use a placeholder instead
       </button>
     </Stack>
@@ -769,10 +773,10 @@ function RecoveryStep({
         style={{ textAlign: "center", letterSpacing: "0.5em", fontSize: 24, width: 160 }}
       />
       {error && <p style={{ color: "var(--accent)", fontSize: 14 }}>{error}</p>}
-      <button className="btn" onClick={submit}>
+      <button className="btn" style={{ width: "100%" }} onClick={submit}>
         Continue
       </button>
-      <button className="btn btn-outline" onClick={onBack}>
+      <button className="btn btn-outline" style={{ width: "100%" }} onClick={onBack}>
         Back
       </button>
     </Stack>
@@ -926,7 +930,7 @@ function Round1Flow({
           gains 1 heart. If only one pair selects Steal, that pair gains 2 hearts and the pair that selected Share
           gains nothing. If both pairs select Steal, both pairs lose 1 heart.
         </p>
-        <button className="btn" onClick={() => setRulesSeen(true)}>
+        <button className="btn" style={{ width: "100%" }} onClick={() => setRulesSeen(true)}>
           I&apos;m ready
         </button>
       </Stack>
@@ -943,7 +947,7 @@ function Round1Flow({
         <p className="label">Your opponents</p>
         {opponentTeam && <h2 style={{ fontWeight: 400, fontSize: 28, textAlign: "center" }}>{opponentTeam.name}</h2>}
         {!myReady ? (
-          <button className="btn" onClick={() => setReady(matchup.id, teamId)}>
+          <button className="btn" style={{ width: "100%" }} onClick={() => setReady(matchup.id, teamId)}>
             I&apos;m ready
           </button>
         ) : (
@@ -981,6 +985,7 @@ function Round1Flow({
         </div>
         <button
           className="btn"
+          style={{ width: "100%" }}
           disabled={!myChoice || submitting}
           onClick={async () => {
             if (!myChoice) return;

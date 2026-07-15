@@ -286,7 +286,7 @@ function HeartsView({
   return (
     <div>
       <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, textAlign: "center", marginBottom: 16 }}>4 of Hearts — Round 1</h2>
-      <button className="btn btn-outline" style={{ marginBottom: 20 }} onClick={onCreateMatchups}>
+      <button className="btn btn-outline" style={{ width: "100%", marginBottom: 20 }} onClick={onCreateMatchups}>
         Create random Round 1 matchups
       </button>
       <p className="label">Pairs at this round ({teams.length})</p>
@@ -390,6 +390,7 @@ function OutcomeModal({
 }) {
   const others = teams.filter((t) => t.id !== selectedTeam.id);
   const [otherId, setOtherId] = useState(others[0]?.id ?? "");
+  const otherTeam = others.find((t) => t.id === otherId) ?? null;
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.55)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 50 }}>
@@ -401,7 +402,10 @@ function OutcomeModal({
           </button>
         </div>
 
-        <TeamRow team={selectedTeam} />
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: "16px 0 24px" }}>
+          <PortraitPair names={selectedTeam.name.split(" + ")} size={64} />
+          <div style={{ fontSize: 20 }}>{selectedTeam.name}</div>
+        </div>
 
         {others.length === 0 ? (
           <p style={{ color: "var(--muted)", fontSize: 14, padding: "12px 0" }}>
@@ -409,24 +413,45 @@ function OutcomeModal({
           </p>
         ) : (
           <>
-            <p className="label" style={{ marginTop: 12 }}>
-              Pairing with
+            <p className="label" style={{ marginBottom: 8 }}>
+              Select pair they completed with
             </p>
-            <select value={otherId} onChange={(e) => setOtherId(e.target.value)} style={{ marginBottom: 16 }}>
-              {others.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <button className="btn-outline" style={{ border: "2px solid var(--line)", padding: 20 }} onClick={() => onPass(otherId)}>
-                Pass
-                <div style={{ fontSize: 13, color: "var(--muted)" }}>Both teams +1 ♥, collect 8♣</div>
+            <div style={{ position: "relative", marginBottom: 16 }}>
+              <select
+                value={otherId}
+                onChange={(e) => setOtherId(e.target.value)}
+                style={{
+                  width: "100%",
+                  appearance: "none",
+                  WebkitAppearance: "none",
+                  border: "2px solid var(--line)",
+                  padding: "24px 48px 24px 20px",
+                  fontSize: 20,
+                  minHeight: 72,
+                }}
+              >
+                {others.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+              <span
+                aria-hidden
+                style={{ position: "absolute", right: 20, top: "50%", transform: "translateY(-50%)", fontSize: 22, pointerEvents: "none" }}
+              >
+                ⌄
+              </span>
+            </div>
+
+            {otherTeam && <TeamRow team={otherTeam} />}
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
+              <button className="btn" style={{ width: "100%", padding: 20, fontSize: 18 }} onClick={() => onPass(otherId)}>
+                PASS +1 Heart
               </button>
-              <button className="btn-outline" style={{ border: "2px solid var(--line)", padding: 20 }} onClick={() => onFail(otherId)}>
-                Fail
-                <div style={{ fontSize: 13, color: "var(--muted)" }}>Both teams -2 ♥, collect 8♣</div>
+              <button className="btn btn-outline" style={{ width: "100%", padding: 20, fontSize: 18 }} onClick={() => onFail(otherId)}>
+                FAIL -2 Hearts
               </button>
             </div>
           </>
