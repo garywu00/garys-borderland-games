@@ -1,6 +1,7 @@
 "use server";
 
 import { createAdminClient, createSessionClient } from "@/lib/supabase/server";
+import { applyHeartDelta } from "@/lib/actions/hearts";
 
 type ManagerRole = "ajan" | "michelle" | "gary";
 
@@ -46,24 +47,6 @@ async function logAction(
   });
 }
 
-async function applyHeartDelta(teamId: string, delta: number, sourceRound: string, relatedId: string | null, createdBy: string) {
-  const admin = createAdminClient();
-  const { error } = await admin.from("heart_transactions").insert({
-    team_id: teamId,
-    delta,
-    reason: `${sourceRound} adjustment`,
-    source_round: sourceRound,
-    related_id: relatedId,
-    created_by: createdBy,
-  });
-  if (error) return false;
-  const { data: team } = await admin.from("teams").select("hearts_cached").eq("id", teamId).single();
-  if (team) {
-    await admin.from("teams").update({ hearts_cached: team.hearts_cached + delta }).eq("id", teamId);
-  }
-  return true;
-}
-
 export async function recordClubsOutcome(teamAId: string, teamBId: string, outcome: "pass" | "fail") {
   const manager = await requireManager();
   const admin = createAdminClient();
@@ -71,9 +54,12 @@ export async function recordClubsOutcome(teamAId: string, teamBId: string, outco
   const relatedId = crypto.randomUUID();
 
   for (const teamId of [teamAId, teamBId]) {
-    await applyHeartDelta(teamId, delta, "round2", relatedId, manager.id);
-    await admin.from("collected_cards").insert({ team_id: teamId, card_code: "club8", awarded_by: manager.id }).select();
-    await admin.from("teams").update({ status: "round3" }).eq("id", teamId);
+    const result = await applyHeartDelta(teamId, delta, "round2", relatedId, manager.id);
+    // A team eliminated by this delta stays eliminated — don't advance it.
+    if (!result.eliminated) {
+      await admin.from("collected_cards").insert({ team_id: teamId, card_code: "club8", awarded_by: manager.id }).select();
+      await admin.from("teams").update({ status: "round3" }).eq("id", teamId);
+    }
   }
 
   await logAction(manager.id, manager.role, `Clubs outcome: ${outcome}`, teamAId, null, { teamAId, teamBId, delta });

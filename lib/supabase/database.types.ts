@@ -574,6 +574,7 @@ export type Database = {
           hearts_cached: number
           id: string
           name: string
+          pre_elimination_status: string | null
           recovery_pin_hash: string
           status: string
           updated_at: string
@@ -586,6 +587,7 @@ export type Database = {
           hearts_cached?: number
           id?: string
           name: string
+          pre_elimination_status?: string | null
           recovery_pin_hash: string
           status?: string
           updated_at?: string
@@ -598,6 +600,7 @@ export type Database = {
           hearts_cached?: number
           id?: string
           name?: string
+          pre_elimination_status?: string | null
           recovery_pin_hash?: string
           status?: string
           updated_at?: string

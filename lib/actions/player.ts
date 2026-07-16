@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { createAdminClient } from "@/lib/supabase/server";
 import { resolveShareSteal, type ShareStealChoice, type CardCode } from "@/lib/game/rules";
 import { requireAuthId, requireActiveController } from "@/lib/actions/session";
+import { applyHeartDelta } from "@/lib/actions/hearts";
 
 async function activeEventId(admin: ReturnType<typeof createAdminClient>): Promise<string> {
   const { data, error } = await admin
@@ -340,39 +341,13 @@ async function resolveMatchup(matchupId: string) {
 
   const outcome = resolveShareSteal(subA.choice as ShareStealChoice, subB.choice as ShareStealChoice);
 
-  await applyHeartDelta(claimed.team_a_id, outcome.deltaA, "round1", matchupId, "system");
-  await applyHeartDelta(claimed.team_b_id, outcome.deltaB, "round1", matchupId, "system");
+  const resultA = await applyHeartDelta(claimed.team_a_id, outcome.deltaA, "round1", matchupId, "system");
+  const resultB = await applyHeartDelta(claimed.team_b_id, outcome.deltaB, "round1", matchupId, "system");
 
-  await awardCard(claimed.team_a_id, "heart4", "system");
-  await awardCard(claimed.team_b_id, "heart4", "system");
-}
-
-async function applyHeartDelta(
-  teamId: string,
-  delta: number,
-  sourceRound: string,
-  relatedId: string | null,
-  createdBy: string,
-) {
-  const admin = createAdminClient();
-  const { error } = await admin.from("heart_transactions").insert({
-    team_id: teamId,
-    delta,
-    reason: `${sourceRound} resolution`,
-    source_round: sourceRound,
-    related_id: relatedId,
-    created_by: createdBy,
-  });
-  // unique index on (related_id, team_id) makes this a no-op if already applied
-  if (error) return;
-
-  const { data: team } = await admin.from("teams").select("hearts_cached").eq("id", teamId).single();
-  if (team) {
-    await admin
-      .from("teams")
-      .update({ hearts_cached: team.hearts_cached + delta, updated_at: new Date().toISOString() })
-      .eq("id", teamId);
-  }
+  // A team eliminated by this delta stays eliminated — don't let awardCard's
+  // unconditional status update clobber it back into round2.
+  if (!resultA.eliminated) await awardCard(claimed.team_a_id, "heart4", "system");
+  if (!resultB.eliminated) await awardCard(claimed.team_b_id, "heart4", "system");
 }
 
 async function awardCard(teamId: string, cardCode: CardCode, awardedBy: string) {

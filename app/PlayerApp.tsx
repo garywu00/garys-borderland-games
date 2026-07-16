@@ -478,6 +478,14 @@ export function PlayerApp({ eventId }: { eventId: string }) {
       {team.status === "final_waiting" && (
         <CheckpointWait label="Final checkpoint" personName="Gary" direction={CARD_META.diamond2.direction} />
       )}
+      {team.status === "eliminated" && (
+        <Stack>
+          <p className="label">【 Out of Hearts 】</p>
+          <p style={{ fontSize: 20, textAlign: "center", maxWidth: 300 }}>
+            You&apos;re out. Head to Focal Point Brewery — meet the group there.
+          </p>
+        </Stack>
+      )}
       {team.status === "non_finalist" && (
         <Stack>
           <p className="label">【 Game Failed 】</p>
