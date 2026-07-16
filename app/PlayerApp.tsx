@@ -517,7 +517,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   return (
     <Screen startsAt={eventStartsAt}>
       <PlayerHeader team={team} />
-      {teamMemberCount < 3 && !["finalist", "non_finalist"].includes(team.status) && (
+      {teamMemberCount < 3 && team.status === "round1" && !matchup && (
         <AddThirdPlayer teamId={teamId} players={players} pairedPlayerIds={pairedPlayerIds} notify={notify} />
       )}
       {team.status === "round1" && (
