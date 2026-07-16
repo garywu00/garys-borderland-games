@@ -606,6 +606,63 @@ export type Database = {
           },
         ]
       }
+      team_trivia_attempts: {
+        Row: {
+          created_at: string
+          heart_transaction_id: string | null
+          id: string
+          is_correct: boolean | null
+          question_id: string
+          round_number: number
+          started_at: string
+          submitted_answer: string | null
+          submitted_at: string | null
+          team_id: string
+          timed_out: boolean
+        }
+        Insert: {
+          created_at?: string
+          heart_transaction_id?: string | null
+          id?: string
+          is_correct?: boolean | null
+          question_id: string
+          round_number: number
+          started_at?: string
+          submitted_answer?: string | null
+          submitted_at?: string | null
+          team_id: string
+          timed_out?: boolean
+        }
+        Update: {
+          created_at?: string
+          heart_transaction_id?: string | null
+          id?: string
+          is_correct?: boolean | null
+          question_id?: string
+          round_number?: number
+          started_at?: string
+          submitted_answer?: string | null
+          submitted_at?: string | null
+          team_id?: string
+          timed_out?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "team_trivia_attempts_heart_transaction_id_fkey"
+            columns: ["heart_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "heart_transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_trivia_attempts_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       teams: {
         Row: {
           active_controller_auth_id: string | null

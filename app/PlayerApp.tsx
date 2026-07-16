@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Portrait, PortraitPair } from "@/components/Portrait";
 import { GameTimer } from "@/components/GameTimer";
 import { PhotoCapture } from "@/components/PhotoCapture";
+import { TriviaFlow } from "@/components/TriviaFlow";
 import { CardDisplay, ProgressTrack } from "@/components/CardDisplay";
 import { CARD_META, NON_FINALIST_MESSAGE, resolveShareSteal, type CardCode, type ShareStealChoice } from "@/lib/game/rules";
 import {
@@ -510,6 +511,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   }
 
   // ---------- In-game ----------
+  const isActiveController = !team.active_controller_auth_id || team.active_controller_auth_id === myAuthId;
   return (
     <Screen startsAt={eventStartsAt}>
       <PlayerHeader team={team} />
@@ -525,25 +527,23 @@ export function PlayerApp({ eventId }: { eventId: string }) {
           myChoice={myChoice}
           setMyChoice={setMyChoice}
           notify={notify}
-          isActiveController={!team.active_controller_auth_id || team.active_controller_auth_id === myAuthId}
+          isActiveController={isActiveController}
         />
       )}
       {team.status === "round2" && (
-        <CheckpointWait
-          label="8 of Clubs"
-          personName="Ajan"
-          direction={CARD_META.heart4.direction}
-        />
+        <TriviaFlow teamId={teamId} roundNumber={1} isActiveController={isActiveController} notify={notify}>
+          <CheckpointWait label="8 of Clubs" personName="Ajan" direction={CARD_META.heart4.direction} />
+        </TriviaFlow>
       )}
       {team.status === "round3" && (
-        <CheckpointWait
-          label="2 of Diamonds"
-          personName="Michelle"
-          direction={CARD_META.club8.direction}
-        />
+        <TriviaFlow teamId={teamId} roundNumber={2} isActiveController={isActiveController} notify={notify}>
+          <CheckpointWait label="2 of Diamonds" personName="Michelle" direction={CARD_META.club8.direction} />
+        </TriviaFlow>
       )}
       {team.status === "final_waiting" && (
-        <CheckpointWait label="Final checkpoint" personName="Gary" direction={CARD_META.diamond2.direction} />
+        <TriviaFlow teamId={teamId} roundNumber={3} isActiveController={isActiveController} notify={notify}>
+          <CheckpointWait label="Final checkpoint" personName="Gary" direction={CARD_META.diamond2.direction} />
+        </TriviaFlow>
       )}
       {team.status === "eliminated" && (
         <Stack>

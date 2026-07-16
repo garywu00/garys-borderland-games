@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/server";
 import { applyHeartDelta } from "@/lib/actions/hearts";
 import { requireManager } from "@/lib/actions/session";
 
-async function logAction(
+export async function logAction(
   actorId: string,
   actorRole: string,
   action: string,

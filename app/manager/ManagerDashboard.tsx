@@ -19,13 +19,26 @@ import {
   giveByeRound1,
   giveByeRound2,
 } from "@/lib/actions/manager";
+import { overrideTriviaResult } from "@/lib/actions/trivia";
+import { getTriviaQuestion } from "@/lib/game/trivia";
 
 type Team = { id: string; name: string; hearts_cached: number; status: string; event_id: string };
 type Finalist = { team_id: string; slot: number };
 type Player = { id: string; display_name: string; claim_status: string };
 type Claim = { player_id: string; pin: string | null };
 type ActivityEntry = { id: string; actor_role: string; action: string; created_at: string };
-type Tab = "overview" | "hearts" | "clubs" | "diamonds" | "spades";
+type TriviaAttempt = {
+  id: string;
+  team_id: string;
+  round_number: number;
+  question_id: string;
+  submitted_answer: string | null;
+  is_correct: boolean | null;
+  submitted_at: string | null;
+  timed_out: boolean;
+  heart_transaction_id: string | null;
+};
+type Tab = "overview" | "trivia" | "hearts" | "clubs" | "diamonds" | "spades";
 
 const ROUND_TABS: { id: Tab; label: string }[] = [
   { id: "hearts", label: "1 · Hearts" },
@@ -41,6 +54,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
   const [players, setPlayers] = useState<Player[]>([]);
   const [claims, setClaims] = useState<Claim[]>([]);
   const [recentActions, setRecentActions] = useState<ActivityEntry[]>([]);
+  const [triviaAttempts, setTriviaAttempts] = useState<TriviaAttempt[]>([]);
   const [toast, setToastMsg] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
 
@@ -64,6 +78,11 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
       .order("created_at", { ascending: false })
       .limit(20);
     setRecentActions(a ?? []);
+    const { data: t } = await supabase
+      .from("team_trivia_attempts")
+      .select("id, team_id, round_number, question_id, submitted_answer, is_correct, submitted_at, timed_out, heart_transaction_id")
+      .order("round_number", { ascending: true });
+    setTriviaAttempts(t ?? []);
   }, [supabase]);
 
   useEffect(() => {
@@ -75,6 +94,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
       .on("postgres_changes", { event: "*", schema: "public", table: "players" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "player_claims" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "manager_actions" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "team_trivia_attempts" }, refresh)
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
@@ -103,12 +123,12 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
         </button>
       </header>
 
-      <nav style={{ marginBottom: 8 }}>
+      <nav style={{ display: "flex", gap: 8, marginBottom: 8 }}>
         <button
           onClick={() => setActiveTab("overview")}
           aria-current={activeTab === "overview"}
           style={{
-            width: "100%",
+            flex: 1,
             padding: "10px 8px",
             fontSize: 14,
             border: "1.6px solid var(--line)",
@@ -118,6 +138,21 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
           }}
         >
           Overview
+        </button>
+        <button
+          onClick={() => setActiveTab("trivia")}
+          aria-current={activeTab === "trivia"}
+          style={{
+            flex: 1,
+            padding: "10px 8px",
+            fontSize: 14,
+            border: "1.6px solid var(--line)",
+            background: activeTab === "trivia" ? "var(--btn-bg)" : "transparent",
+            color: activeTab === "trivia" ? "var(--btn-fg)" : "var(--fg)",
+            cursor: "pointer",
+          }}
+        >
+          Trivia
         </button>
       </nav>
       <nav style={{ display: "flex", gap: 8, marginBottom: 18 }}>
@@ -257,6 +292,17 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
                 ? "Claim reset — that name is available again."
                 : "Already paired up — use Remove team on that pair instead.",
             );
+          }}
+        />
+      )}
+
+      {activeTab === "trivia" && (
+        <TriviaView
+          attempts={triviaAttempts}
+          teams={teams}
+          onOverride={async (attemptId) => {
+            const result = await overrideTriviaResult(attemptId);
+            notify(result.ok ? "Heart penalty reversed." : "Could not override — no penalty to reverse, or already reversed.");
           }}
         />
       )}
@@ -790,4 +836,48 @@ function formatRelativeTime(iso: string): string {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
+}
+
+function TriviaView({
+  attempts,
+  teams,
+  onOverride,
+}: {
+  attempts: TriviaAttempt[];
+  teams: Team[];
+  onOverride: (attemptId: string) => void;
+}) {
+  return (
+    <div>
+      <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, textAlign: "center", marginBottom: 16 }}>Gary Trivia</h2>
+      <p className="label">Attempts ({attempts.length})</p>
+      {attempts.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>No trivia attempts yet.</p>}
+      {attempts.map((a) => {
+        const team = teams.find((t) => t.id === a.team_id);
+        const question = getTriviaQuestion(a.question_id);
+        const resultLabel = !a.submitted_at ? "In progress" : a.timed_out ? "Timed out" : a.is_correct ? "Correct" : "Incorrect";
+        return (
+          <div key={a.id} style={{ padding: 14, border: "1.6px solid var(--line)", marginBottom: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+              <div style={{ fontSize: 15 }}>{team?.name ?? "Unknown team"}</div>
+              <div className="label">Round {a.round_number}</div>
+            </div>
+            <div style={{ fontSize: 14, marginBottom: 4 }}>{question?.prompt ?? a.question_id}</div>
+            <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 8 }}>
+              Answer: {a.submitted_answer ?? "—"} · {resultLabel}
+            </div>
+            {a.heart_transaction_id && (
+              <button
+                className="btn-outline"
+                style={{ width: "auto", minHeight: "auto", padding: "8px 12px", fontSize: 12, border: "1.6px solid var(--line)" }}
+                onClick={() => onOverride(a.id)}
+              >
+                Override — restore heart
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
 }

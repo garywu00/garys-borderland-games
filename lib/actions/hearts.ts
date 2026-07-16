@@ -18,23 +18,27 @@ export async function applyHeartDelta(
   sourceRound: string,
   relatedId: string | null,
   createdBy: string,
-): Promise<{ applied: boolean; eliminated: boolean; hearts: number }> {
+): Promise<{ applied: boolean; eliminated: boolean; hearts: number; transactionId: string | null }> {
   const admin = createAdminClient();
-  const { error } = await admin.from("heart_transactions").insert({
-    team_id: teamId,
-    delta,
-    reason: `${sourceRound} adjustment`,
-    source_round: sourceRound,
-    related_id: relatedId,
-    created_by: createdBy,
-  });
+  const { data: inserted, error } = await admin
+    .from("heart_transactions")
+    .insert({
+      team_id: teamId,
+      delta,
+      reason: `${sourceRound} adjustment`,
+      source_round: sourceRound,
+      related_id: relatedId,
+      created_by: createdBy,
+    })
+    .select("id")
+    .single();
   if (error) {
     const { data: team } = await admin.from("teams").select("hearts_cached").eq("id", teamId).maybeSingle();
-    return { applied: false, eliminated: false, hearts: team?.hearts_cached ?? 0 };
+    return { applied: false, eliminated: false, hearts: team?.hearts_cached ?? 0, transactionId: null };
   }
 
   const { data: team } = await admin.from("teams").select("hearts_cached, status").eq("id", teamId).single();
-  if (!team) return { applied: true, eliminated: false, hearts: 0 };
+  if (!team) return { applied: true, eliminated: false, hearts: 0, transactionId: inserted.id };
 
   const newHearts = team.hearts_cached + delta;
   const becomesEliminated = newHearts <= 0 && !TERMINAL_STATUSES.includes(team.status);
@@ -48,7 +52,7 @@ export async function applyHeartDelta(
     })
     .eq("id", teamId);
 
-  return { applied: true, eliminated: becomesEliminated, hearts: newHearts };
+  return { applied: true, eliminated: becomesEliminated, hearts: newHearts, transactionId: inserted.id };
 }
 
 /**
