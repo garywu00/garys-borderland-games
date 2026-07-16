@@ -315,6 +315,8 @@ export async function resetGameState() {
   const all = () => admin.from("teams").update({ active_controller_device_id: null }).not("id", "is", null);
   await all();
 
+  await admin.from("events").update({ starts_at: null }).not("id", "is", null);
+
   await admin.from("manager_actions").delete().not("id", "is", null);
   await admin.from("winner_results").delete().not("id", "is", null);
   await admin.from("finalists").delete().not("id", "is", null);

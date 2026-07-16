@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Portrait, PortraitPair } from "@/components/Portrait";
+import { GameTimer } from "@/components/GameTimer";
 import { CardDisplay, ProgressTrack } from "@/components/CardDisplay";
 import { CARD_META, NON_FINALIST_MESSAGE, type CardCode } from "@/lib/game/rules";
 import {
@@ -71,6 +72,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   const [claimPinShown, setClaimPinShown] = useState<string | null>(null);
   const [myChoice, setMyChoice] = useState<"share" | "steal" | null>(null);
   const [toast, setToastMsg] = useState<string | null>(null);
+  const [eventStartsAt, setEventStartsAt] = useState<string | null>(null);
 
   function notify(msg: string) {
     setToastMsg(msg);
@@ -100,6 +102,11 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     setPlayers(data ?? []);
     if (playerId) setMe((data ?? []).find((p) => p.id === playerId) ?? null);
   }, [supabase, eventId, playerId]);
+
+  const refreshEventStartsAt = useCallback(async () => {
+    const { data } = await supabase.from("events").select("starts_at").eq("id", eventId).maybeSingle();
+    setEventStartsAt(data?.starts_at ?? null);
+  }, [supabase, eventId]);
 
   const refreshPairedPlayers = useCallback(async () => {
     const { data } = await supabase.from("team_members").select("player_id");
@@ -199,6 +206,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     refreshCards();
     refreshFinalist();
     refreshWinner();
+    refreshEventStartsAt();
   }, [
     ready,
     refreshRoster,
@@ -210,6 +218,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     refreshCards,
     refreshFinalist,
     refreshWinner,
+    refreshEventStartsAt,
   ]);
 
   useEffect(() => {
@@ -233,6 +242,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "collected_cards" }, refreshCards)
       .on("postgres_changes", { event: "*", schema: "public", table: "finalists" }, refreshFinalist)
       .on("postgres_changes", { event: "*", schema: "public", table: "winner_results" }, refreshWinner)
+      .on("postgres_changes", { event: "*", schema: "public", table: "events" }, refreshEventStartsAt)
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
@@ -250,6 +260,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     refreshCards,
     refreshFinalist,
     refreshWinner,
+    refreshEventStartsAt,
   ]);
 
   if (!ready) return null;
@@ -258,7 +269,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   if (!playerId || !me) {
     if (claimPinShown && me) {
       return (
-        <Screen>
+        <Screen startsAt={eventStartsAt}>
           <Stack>
             <Portrait name={me.display_name} photoUrl={selfie} size={96} />
             <h2 style={{ fontWeight: 400, fontSize: 24 }}>Save this, just in case</h2>
@@ -293,7 +304,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
       );
     }
     return (
-      <Screen>
+      <Screen startsAt={eventStartsAt}>
         {uiStep === "landing" && (
           <Stack>
             <div style={{ textAlign: "center" }}>
@@ -373,7 +384,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   // ---------- Pairing lobby ----------
   if (!teamId || !team) {
     return (
-      <Screen>
+      <Screen startsAt={eventStartsAt}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, paddingBottom: 16, borderBottom: "1px solid rgba(10,10,10,0.15)", marginBottom: 20 }}>
           <Portrait name={me.display_name} photoUrl={selfie} size={40} />
           <div style={{ fontSize: 16 }}>{me.display_name}</div>
@@ -398,7 +409,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   // ---------- Rules + PIN (shown once right after pairing) ----------
   if (pinShown) {
     return (
-      <Screen>
+      <Screen startsAt={eventStartsAt}>
         <Stack>
           <h2 style={{ fontWeight: 400, fontSize: 24 }}>Rules & Recovery</h2>
           <p style={{ fontSize: 15, textAlign: "center", maxWidth: 320 }}>
@@ -429,7 +440,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
 
   // ---------- In-game ----------
   return (
-    <Screen>
+    <Screen startsAt={eventStartsAt}>
       <PlayerHeader team={team} />
       {teamMemberCount < 3 && !["finalist", "non_finalist"].includes(team.status) && (
         <AddThirdPlayer teamId={teamId} players={players} pairedPlayerIds={pairedPlayerIds} notify={notify} />
@@ -509,7 +520,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
 // Sub-components
 // ============================================================================
 
-function Screen({ children }: { children: React.ReactNode }) {
+function Screen({ children, startsAt }: { children: React.ReactNode; startsAt?: string | null }) {
   return (
     <main
       style={{
@@ -521,6 +532,7 @@ function Screen({ children }: { children: React.ReactNode }) {
         flexDirection: "column",
       }}
     >
+      {startsAt !== undefined && <GameTimer startsAt={startsAt} />}
       {children}
     </main>
   );

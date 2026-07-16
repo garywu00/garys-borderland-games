@@ -161,6 +161,15 @@ export async function acceptInvite(inviteId: string) {
   if (error || !invite) return { ok: false as const, reason: "not_found" as const };
   if (invite.status !== "pending") return { ok: false as const, reason: "invite_expired" as const };
 
+  // Starts the global game timer on the very first pair to ever form for
+  // this event. The .is(...null) guard makes this idempotent — every
+  // subsequent acceptInvite call is a no-op UPDATE matching zero rows.
+  await admin
+    .from("events")
+    .update({ starts_at: new Date().toISOString() })
+    .eq("id", invite.event_id)
+    .is("starts_at", null);
+
   const { data: fromPlayer } = await admin
     .from("players")
     .select("display_name")
