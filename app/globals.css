@@ -177,15 +177,19 @@ input:focus-visible,
   animation: flicker-in 0.9s steps(8, end) both;
 }
 
-/* Full-bleed dark panel for high-stakes moments (reveals, eliminations,
+/* Full-bleed panel for high-stakes moments (reveals, eliminations,
    congratulations) — bleeds edge-to-edge past Screen's own padding via a
-   negative margin matching it (see components using --screen-pad-x). */
+   negative margin matching it. Stays in the app's light theme (white bg,
+   black text) — the accent-color top/bottom border is what marks it as a
+   dramatic moment, not an inverted color scheme. */
 .dramatic-panel {
   --screen-pad-x: 20px;
   margin: 0 calc(var(--screen-pad-x) * -1);
   padding: 32px var(--screen-pad-x);
-  background: #0a0a0a;
-  color: #f5f5f5;
+  background: var(--bg);
+  color: var(--fg);
+  border-top: 3px solid var(--accent);
+  border-bottom: 3px solid var(--accent);
   min-height: 100%;
   display: flex;
   flex-direction: column;
@@ -193,10 +197,6 @@ input:focus-visible,
   justify-content: center;
   gap: 20px;
   flex: 1;
-}
-
-.dramatic-panel .label {
-  color: #9a9a9a;
 }
 
 input[type="text"],

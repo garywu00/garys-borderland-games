@@ -33,19 +33,15 @@ export function CongratsScreen({
       <div className="pop-in">
         <PortraitPair names={teamName.split(" + ")} photos={photos} size={88} />
       </div>
-      <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: 32, textAlign: "center", color: "#fff" }}>
+      <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: 32, textAlign: "center" }}>
         {title}
       </h2>
       {subtitle && (
-        <p className="fade-up" style={{ fontSize: 17, textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "#d8d8d8" }}>
+        <p className="fade-up" style={{ fontSize: 17, textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "var(--muted)" }}>
           {subtitle}
         </p>
       )}
-      <button
-        className="btn"
-        style={{ width: "100%", background: "var(--accent)", borderColor: "var(--accent)" }}
-        onClick={onDismiss}
-      >
+      <button className="btn" style={{ width: "100%" }} onClick={onDismiss}>
         {ctaLabel}
       </button>
     </div>

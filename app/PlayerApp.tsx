@@ -613,10 +613,10 @@ export function PlayerApp({ eventId }: { eventId: string }) {
       {team.status === "eliminated" && (
         <div className="dramatic-panel">
           <p className="label flicker-in">Your hearts are gone</p>
-          <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: 34, textAlign: "center", color: "#fff" }}>
+          <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: 34, textAlign: "center" }}>
             The Borderland has no more use for you.
           </h2>
-          <p className="fade-up" style={{ fontSize: 17, textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "#d8d8d8" }}>
+          <p className="fade-up" style={{ fontSize: 17, textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "var(--muted)" }}>
             Head to Focal Point Brewery — the others will find you there.
           </p>
         </div>
@@ -624,10 +624,10 @@ export function PlayerApp({ eventId }: { eventId: string }) {
       {team.status === "non_finalist" && (
         <div className="dramatic-panel">
           <p className="label flicker-in">Game over</p>
-          <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: 34, textAlign: "center", color: "#fff" }}>
+          <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: 34, textAlign: "center" }}>
             Three pairs made it through. You weren&apos;t one of them.
           </h2>
-          <p className="fade-up" style={{ fontSize: 17, textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "#d8d8d8" }}>
+          <p className="fade-up" style={{ fontSize: 17, textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "var(--muted)" }}>
             {NON_FINALIST_MESSAGE}
           </p>
         </div>
@@ -638,16 +638,13 @@ export function PlayerApp({ eventId }: { eventId: string }) {
           <div className="pop-in">
             <PortraitPair names={team.name.split(" + ")} photos={myTeamPhotos} size={92} />
           </div>
-          <h2
-            className="fade-up"
-            style={{ fontFamily: "var(--font-display)", fontSize: 44, fontWeight: 700, textAlign: "center", color: "#fff" }}
-          >
+          <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: 44, fontWeight: 700, textAlign: "center" }}>
             You won.
           </h2>
-          <p className="fade-up" style={{ fontSize: 17, textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "#d8d8d8" }}>
+          <p className="fade-up" style={{ fontSize: 17, textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "var(--muted)" }}>
             {team.name} claims Gary&apos;s 26th Borderland Games — right here, at Focal Point Brewery.
           </p>
-          <div style={{ fontSize: 24, color: "#fff" }}>♥ {team.hearts_cached} remaining</div>
+          <div style={{ fontSize: 24 }}>♥ {team.hearts_cached} remaining</div>
           <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
             {collectedCards.map((c) => (
               <CardDisplay key={c} code={c} width={90} />
@@ -661,14 +658,14 @@ export function PlayerApp({ eventId }: { eventId: string }) {
           <div className="pop-in">
             <PortraitPair names={team.name.split(" + ")} photos={myTeamPhotos} size={92} />
           </div>
-          <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: 36, textAlign: "center", color: "#fff" }}>
+          <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: 36, textAlign: "center" }}>
             Finalist #{finalistSlot ?? "—"}
           </h2>
-          <p className="fade-up" style={{ fontSize: 17, textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "#d8d8d8" }}>
+          <p className="fade-up" style={{ fontSize: 17, textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "var(--muted)" }}>
             You&apos;re standing at Focal Point Brewery — one of only three pairs left. One final game decides
             everything.
           </p>
-          <div style={{ fontSize: 24, color: "#fff" }}>♥ {team.hearts_cached} remaining</div>
+          <div style={{ fontSize: 24 }}>♥ {team.hearts_cached} remaining</div>
           <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
             {collectedCards.map((c) => (
               <CardDisplay key={c} code={c} width={90} />
@@ -1226,14 +1223,8 @@ function ShareStealReveal({
       )}
       {revealed && outcome && (
         <div className="pop-in" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 20, width: "100%" }}>
-          <p style={{ fontSize: 19, lineHeight: 1.6, textAlign: "center", maxWidth: 300, color: "#fff" }}>
-            {outcome.copyForA}
-          </p>
-          <button
-            className="btn"
-            style={{ width: "100%", background: "var(--accent)", borderColor: "var(--accent)" }}
-            onClick={onDismiss}
-          >
+          <p style={{ fontSize: 19, lineHeight: 1.6, textAlign: "center", maxWidth: 300 }}>{outcome.copyForA}</p>
+          <button className="btn" style={{ width: "100%" }} onClick={onDismiss}>
             Next game
           </button>
         </div>
@@ -1258,12 +1249,12 @@ function RevealColumn({
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, flex: 1 }}>
       <PortraitPair names={names} photos={photos} size={56} />
-      <p className="label" style={{ marginTop: 4, color: "#9a9a9a" }}>
+      <p className="label" style={{ marginTop: 4 }}>
         {label}
       </p>
       {choice !== undefined && delta !== undefined && (
         <div className="pop-in" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-          <div style={{ fontSize: 16, fontWeight: 600, color: delta > 0 ? "#5ddb7f" : delta < 0 ? "var(--accent)" : "#fff" }}>
+          <div style={{ fontSize: 16, fontWeight: 600, color: delta > 0 ? "var(--ok)" : delta < 0 ? "var(--accent)" : "var(--fg)" }}>
             ♥ {delta > 0 ? `+${delta}` : delta}
           </div>
           <div
@@ -1271,8 +1262,7 @@ function RevealColumn({
               fontSize: 12,
               fontWeight: 600,
               letterSpacing: "0.06em",
-              border: "1.6px solid #444",
-              color: "#fff",
+              border: "1.6px solid var(--line)",
               padding: "4px 10px",
               textTransform: "uppercase",
             }}
