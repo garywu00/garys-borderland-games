@@ -80,6 +80,27 @@ export async function recordClubsOutcome(teamAId: string, teamBId: string, outco
   return { ok: true as const };
 }
 
+/**
+ * For the last team to arrive at the Clubs checkpoint when no other pair is
+ * left to complete the challenge with. Awards the same outcome as a Pass
+ * (+1 heart, 8♣ card) and advances them, rather than making them wait for a
+ * pair that may never show.
+ */
+export async function giveByeRound2(teamId: string) {
+  const manager = await requireManager();
+  const admin = createAdminClient();
+
+  const { data: team } = await admin.from("teams").select("status").eq("id", teamId).maybeSingle();
+  if (!team || team.status !== "round2") return { ok: false as const, reason: "not_found" as const };
+
+  await applyHeartDelta(teamId, 1, "round2", null, manager.id);
+  await admin.from("collected_cards").insert({ team_id: teamId, card_code: "club8", awarded_by: manager.id }).select();
+  await admin.from("teams").update({ status: "round3" }).eq("id", teamId);
+
+  await logAction(manager.id, manager.role, "Gave Round 2 bye (no pair to complete with)", teamId, null, { delta: 1 });
+  return { ok: true as const };
+}
+
 export async function recordDiamondsPass(teamId: string) {
   const manager = await requireManager();
   const admin = createAdminClient();

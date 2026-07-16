@@ -17,6 +17,7 @@ import {
   resetPlayerClaim,
   undoFinalistConfirmation,
   giveByeRound1,
+  giveByeRound2,
 } from "@/lib/actions/manager";
 
 type Team = { id: string; name: string; hearts_cached: number; status: string; event_id: string };
@@ -182,6 +183,10 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
             await recordClubsOutcome(a, b, outcome);
             notify(`Recorded ${outcome.toUpperCase()} — both teams advanced.`);
           }}
+          onGiveBye={async (id) => {
+            const result = await giveByeRound2(id);
+            notify(result.ok ? "Bye given — advanced to Round 3 with +1 heart." : "Could not give bye.");
+          }}
           onAdjust={onAdjust}
         />
       )}
@@ -319,10 +324,12 @@ function HeartsView({
 function ClubsView({
   teams,
   onOutcome,
+  onGiveBye,
   onAdjust,
 }: {
   teams: Team[];
   onOutcome: (a: string, b: string, outcome: "pass" | "fail") => void;
+  onGiveBye: (id: string) => void;
   onAdjust: (id: string, delta: number) => void;
 }) {
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
@@ -353,6 +360,17 @@ function ClubsView({
                 }}
               >
                 Adjust
+              </button>
+              <button
+                className="btn-outline"
+                style={{ width: "auto", minHeight: "auto", padding: "6px 10px", fontSize: 12, border: "1.6px solid var(--line)" }}
+                onClick={() => {
+                  if (confirm(`Give ${t.name} a bye? Use this only if they're the last team here with no pair left to complete with — awards +1 heart and the 8♣ card, then advances them to Round 3.`)) {
+                    onGiveBye(t.id);
+                  }
+                }}
+              >
+                Give bye
               </button>
             </div>
           }
