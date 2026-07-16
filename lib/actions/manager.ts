@@ -23,22 +23,63 @@ export async function logAction(
   });
 }
 
-export async function recordClubsOutcome(teamAId: string, teamBId: string, outcome: "pass" | "fail") {
+/**
+ * Ajan pairs two arrived Round 2 teams together up front — the challenge
+ * itself (and how it resolves, pass or fail) happens afterward, on the
+ * teams' own screens or via resolveClubsPass below.
+ */
+export async function pairClubsTeams(teamAId: string, teamBId: string) {
   const manager = await requireManager();
   const admin = createAdminClient();
-  const delta = outcome === "pass" ? 1 : -2;
-  const relatedId = crypto.randomUUID();
 
-  for (const teamId of [teamAId, teamBId]) {
-    const result = await applyHeartDelta(teamId, delta, "round2", relatedId, manager.id);
-    // A team eliminated by this delta stays eliminated — don't advance it.
+  const { data: teamsData } = await admin.from("teams").select("id, status, event_id").in("id", [teamAId, teamBId]);
+  if (!teamsData || teamsData.length !== 2 || teamsData.some((t) => t.status !== "round2")) {
+    return { ok: false as const, reason: "not_eligible" as const };
+  }
+
+  const { error } = await admin.from("clubs_pairings").insert({
+    event_id: teamsData[0]!.event_id,
+    team_a_id: teamAId,
+    team_b_id: teamBId,
+    paired_by: manager.id,
+  });
+  if (error) return { ok: false as const, reason: "conflict" as const };
+
+  await logAction(manager.id, manager.role, "Paired Clubs teams", teamAId, null, { teamAId, teamBId });
+  return { ok: true as const };
+}
+
+/**
+ * Ajan presses this once a paired-up duo shows him a finished spinach bag —
+ * the only path to a Pass, since it requires physical proof. A mutual Fail
+ * is entirely self-serve on the teams' own screens (see voteClubsFail in
+ * lib/actions/checkpoints.ts) and never touches this action.
+ */
+export async function resolveClubsPass(pairingId: string) {
+  const manager = await requireManager();
+  const admin = createAdminClient();
+
+  const { data: pairing } = await admin
+    .from("clubs_pairings")
+    .select("id, team_a_id, team_b_id, status")
+    .eq("id", pairingId)
+    .maybeSingle();
+  if (!pairing || pairing.status !== "active") return { ok: false as const, reason: "not_found" as const };
+
+  for (const teamId of [pairing.team_a_id, pairing.team_b_id]) {
+    const result = await applyHeartDelta(teamId, 1, "round2", pairingId, manager.id);
     if (!result.eliminated) {
       await admin.from("collected_cards").insert({ team_id: teamId, card_code: "club8", awarded_by: manager.id }).select();
       await admin.from("teams").update({ status: "round3" }).eq("id", teamId);
     }
   }
 
-  await logAction(manager.id, manager.role, `Clubs outcome: ${outcome}`, teamAId, null, { teamAId, teamBId, delta });
+  await admin.from("clubs_pairings").update({ status: "resolved", resolved_at: new Date().toISOString() }).eq("id", pairingId);
+
+  await logAction(manager.id, manager.role, "Clubs pairing resolved: pass", pairing.team_a_id, null, {
+    teamAId: pairing.team_a_id,
+    teamBId: pairing.team_b_id,
+  });
   return { ok: true as const };
 }
 

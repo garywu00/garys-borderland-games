@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { PortraitPair, Portrait } from "@/components/Portrait";
 import {
-  recordClubsOutcome,
+  pairClubsTeams,
+  resolveClubsPass,
   recordDiamondsPass,
   adjustHeartsManual,
   confirmArrival,
@@ -39,6 +40,7 @@ type TriviaAttempt = {
   heart_transaction_id: string | null;
 };
 type Tab = "overview" | "trivia" | "hearts" | "clubs" | "diamonds" | "spades";
+type ClubsPairing = { id: string; team_a_id: string; team_b_id: string; status: string };
 
 const ROUND_TABS: { id: Tab; label: string }[] = [
   { id: "hearts", label: "1 · Hearts" },
@@ -55,6 +57,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
   const [claims, setClaims] = useState<Claim[]>([]);
   const [recentActions, setRecentActions] = useState<ActivityEntry[]>([]);
   const [triviaAttempts, setTriviaAttempts] = useState<TriviaAttempt[]>([]);
+  const [clubsPairings, setClubsPairings] = useState<ClubsPairing[]>([]);
   const [toast, setToastMsg] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
 
@@ -83,6 +86,11 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
       .select("id, team_id, round_number, question_id, submitted_answer, is_correct, submitted_at, timed_out, heart_transaction_id")
       .order("round_number", { ascending: true });
     setTriviaAttempts(t ?? []);
+    const { data: cp } = await supabase
+      .from("clubs_pairings")
+      .select("id, team_a_id, team_b_id, status")
+      .eq("status", "active");
+    setClubsPairings(cp ?? []);
   }, [supabase]);
 
   useEffect(() => {
@@ -95,6 +103,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
       .on("postgres_changes", { event: "*", schema: "public", table: "player_claims" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "manager_actions" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "team_trivia_attempts" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "clubs_pairings" }, refresh)
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
@@ -214,9 +223,14 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
       {activeTab === "clubs" && (
         <ClubsView
           teams={teams.filter((t) => t.status === "round2")}
-          onOutcome={async (a, b, outcome) => {
-            await recordClubsOutcome(a, b, outcome);
-            notify(`Recorded ${outcome.toUpperCase()} — both teams advanced.`);
+          pairings={clubsPairings}
+          onPair={async (a, b) => {
+            const result = await pairClubsTeams(a, b);
+            notify(result.ok ? "Paired up." : "Could not pair — check both teams are still at Round 2.");
+          }}
+          onMarkPass={async (pairingId) => {
+            const result = await resolveClubsPass(pairingId);
+            notify(result.ok ? "Marked Pass — both teams advanced." : "Could not mark pass.");
           }}
           onGiveBye={async (id) => {
             const result = await giveByeRound2(id);
@@ -369,22 +383,30 @@ function HeartsView({
 
 function ClubsView({
   teams,
-  onOutcome,
+  pairings,
+  onPair,
+  onMarkPass,
   onGiveBye,
   onAdjust,
 }: {
   teams: Team[];
-  onOutcome: (a: string, b: string, outcome: "pass" | "fail") => void;
+  pairings: { id: string; team_a_id: string; team_b_id: string; status: string }[];
+  onPair: (a: string, b: string) => void;
+  onMarkPass: (pairingId: string) => void;
   onGiveBye: (id: string) => void;
   onAdjust: (id: string, delta: number) => void;
 }) {
-  const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
+  const [pairingTeam, setPairingTeam] = useState<Team | null>(null);
+  const pairedTeamIds = new Set(pairings.flatMap((p) => [p.team_a_id, p.team_b_id]));
+  const unpaired = teams.filter((t) => !pairedTeamIds.has(t.id));
+
   return (
     <div>
       <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, textAlign: "center", marginBottom: 16 }}>8 of Clubs Game</h2>
-      <p className="label">Pairs at this round ({teams.length})</p>
-      {teams.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>No pairs currently at the Clubs checkpoint.</p>}
-      {teams.map((t) => (
+
+      <p className="label">Unpaired teams ({unpaired.length})</p>
+      {unpaired.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>No unpaired teams at the Clubs checkpoint.</p>}
+      {unpaired.map((t) => (
         <TeamRow
           key={t.id}
           team={t}
@@ -393,9 +415,9 @@ function ClubsView({
               <button
                 className="btn"
                 style={{ width: "auto", minHeight: "auto", padding: "10px 16px", fontSize: 14 }}
-                onClick={() => setSelectedTeam(t)}
+                onClick={() => setPairingTeam(t)}
               >
-                Select outcome
+                Pair up
               </button>
               <button
                 className="btn-outline"
@@ -422,18 +444,34 @@ function ClubsView({
           }
         />
       ))}
-      {selectedTeam && (
-        <OutcomeModal
-          teams={teams}
-          selectedTeam={selectedTeam}
-          onClose={() => setSelectedTeam(null)}
-          onPass={(otherId) => {
-            onOutcome(selectedTeam.id, otherId, "pass");
-            setSelectedTeam(null);
-          }}
-          onFail={(otherId) => {
-            onOutcome(selectedTeam.id, otherId, "fail");
-            setSelectedTeam(null);
+
+      <p className="label" style={{ marginTop: 20 }}>
+        Active pairings ({pairings.length})
+      </p>
+      {pairings.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>No active pairings.</p>}
+      {pairings.map((p) => {
+        const teamA = teams.find((t) => t.id === p.team_a_id);
+        const teamB = teams.find((t) => t.id === p.team_b_id);
+        if (!teamA || !teamB) return null;
+        return (
+          <div key={p.id} style={{ border: "1.6px solid var(--line)", padding: 14, marginBottom: 10 }}>
+            <TeamRow team={teamA} />
+            <TeamRow team={teamB} />
+            <button className="btn" style={{ width: "100%" }} onClick={() => onMarkPass(p.id)}>
+              Mark Pass — both teams +1 heart
+            </button>
+          </div>
+        );
+      })}
+
+      {pairingTeam && (
+        <PairTeamsModal
+          teams={unpaired}
+          selectedTeam={pairingTeam}
+          onClose={() => setPairingTeam(null)}
+          onConfirm={(otherId) => {
+            onPair(pairingTeam.id, otherId);
+            setPairingTeam(null);
           }}
         />
       )}
@@ -441,18 +479,16 @@ function ClubsView({
   );
 }
 
-function OutcomeModal({
+function PairTeamsModal({
   teams,
   selectedTeam,
   onClose,
-  onPass,
-  onFail,
+  onConfirm,
 }: {
   teams: Team[];
   selectedTeam: Team;
   onClose: () => void;
-  onPass: (otherTeamId: string) => void;
-  onFail: (otherTeamId: string) => void;
+  onConfirm: (otherTeamId: string) => void;
 }) {
   const others = teams.filter((t) => t.id !== selectedTeam.id);
   const [otherId, setOtherId] = useState(others[0]?.id ?? "");
@@ -462,7 +498,7 @@ function OutcomeModal({
     <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.55)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 50 }}>
       <div style={{ background: "var(--bg)", width: "100%", maxWidth: 560, padding: 22 }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
-          <h2 style={{ fontWeight: 400, fontSize: 22 }}>Select outcome</h2>
+          <h2 style={{ fontWeight: 400, fontSize: 22 }}>Pair up</h2>
           <button className="btn-outline" style={{ width: 36, height: 36, border: "1.6px solid var(--line)" }} onClick={onClose}>
             ✕
           </button>
@@ -475,12 +511,12 @@ function OutcomeModal({
 
         {others.length === 0 ? (
           <p style={{ color: "var(--muted)", fontSize: 14, padding: "12px 0" }}>
-            No other pair is at this checkpoint yet — wait for one to arrive.
+            No other unpaired team is at this checkpoint yet — wait for one to arrive.
           </p>
         ) : (
           <>
             <p className="label" style={{ marginBottom: 8 }}>
-              Select pair they completed with
+              Pair with
             </p>
             <div style={{ position: "relative", marginBottom: 16 }}>
               <select
@@ -512,14 +548,9 @@ function OutcomeModal({
 
             {otherTeam && <TeamRow team={otherTeam} />}
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
-              <button className="btn" style={{ width: "100%", padding: 20, fontSize: 18 }} onClick={() => onPass(otherId)}>
-                PASS +1 Heart
-              </button>
-              <button className="btn btn-outline" style={{ width: "100%", padding: 20, fontSize: 18 }} onClick={() => onFail(otherId)}>
-                FAIL -2 Hearts
-              </button>
-            </div>
+            <button className="btn" style={{ width: "100%", padding: 20, fontSize: 18, marginTop: 16 }} onClick={() => onConfirm(otherId)}>
+              Pair up
+            </button>
           </>
         )}
       </div>

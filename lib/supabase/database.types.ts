@@ -87,6 +87,97 @@ export type Database = {
           },
         ]
       }
+      clubs_fail_votes: {
+        Row: {
+          id: string
+          pairing_id: string
+          team_id: string
+          voted_at: string
+        }
+        Insert: {
+          id?: string
+          pairing_id: string
+          team_id: string
+          voted_at?: string
+        }
+        Update: {
+          id?: string
+          pairing_id?: string
+          team_id?: string
+          voted_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "clubs_fail_votes_pairing_id_fkey"
+            columns: ["pairing_id"]
+            isOneToOne: false
+            referencedRelation: "clubs_pairings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "clubs_fail_votes_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      clubs_pairings: {
+        Row: {
+          created_at: string
+          event_id: string
+          id: string
+          paired_by: string | null
+          resolved_at: string | null
+          status: string
+          team_a_id: string
+          team_b_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_id: string
+          id?: string
+          paired_by?: string | null
+          resolved_at?: string | null
+          status?: string
+          team_a_id: string
+          team_b_id: string
+        }
+        Update: {
+          created_at?: string
+          event_id?: string
+          id?: string
+          paired_by?: string | null
+          resolved_at?: string | null
+          status?: string
+          team_a_id?: string
+          team_b_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "clubs_pairings_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "clubs_pairings_team_a_id_fkey"
+            columns: ["team_a_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "clubs_pairings_team_b_id_fkey"
+            columns: ["team_b_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       collected_cards: {
         Row: {
           awarded_at: string

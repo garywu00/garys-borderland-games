@@ -6,6 +6,7 @@ import { Portrait, PortraitPair } from "@/components/Portrait";
 import { GameTimer } from "@/components/GameTimer";
 import { PhotoCapture } from "@/components/PhotoCapture";
 import { TriviaFlow } from "@/components/TriviaFlow";
+import { ClubsPairingFlow } from "@/components/ClubsPairingFlow";
 import { CardDisplay, ProgressTrack } from "@/components/CardDisplay";
 import { CARD_META, NON_FINALIST_MESSAGE, resolveShareSteal, type CardCode, type ShareStealChoice } from "@/lib/game/rules";
 import {
@@ -532,7 +533,13 @@ export function PlayerApp({ eventId }: { eventId: string }) {
       )}
       {team.status === "round2" && (
         <TriviaFlow teamId={teamId} roundNumber={1} isActiveController={isActiveController} notify={notify}>
-          <CheckpointWait label="8 of Clubs" personName="Ajan" direction={CARD_META.heart4.direction} />
+          <ClubsPairingFlow
+            teamId={teamId}
+            isActiveController={isActiveController}
+            notify={notify}
+            waitingLabel="8 of Clubs"
+            waitingDirection={CARD_META.heart4.direction}
+          />
         </TriviaFlow>
       )}
       {team.status === "round3" && (
