@@ -230,6 +230,15 @@ export async function inviteThirdPlayer(teamId: string, playerId: string) {
   if ((count ?? 0) >= 3) return { ok: false as const, reason: "team_full" as const };
   const { error } = await admin.from("team_members").insert({ team_id: teamId, player_id: playerId });
   if (error) return { ok: false as const, reason: "conflict" as const };
+
+  const { data: memberRows } = await admin.from("team_members").select("player_id").eq("team_id", teamId);
+  const memberIds = (memberRows ?? []).map((m) => m.player_id);
+  const { data: playersData } = await admin.from("players").select("display_name").in("id", memberIds);
+  const names = (playersData ?? []).map((p) => p.display_name);
+  if (names.length) {
+    await admin.from("teams").update({ name: names.join(" + ") }).eq("id", teamId);
+  }
+
   return { ok: true as const };
 }
 

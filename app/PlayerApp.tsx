@@ -12,6 +12,7 @@ import {
   cancelInvite,
   declineInvite,
   acceptInvite,
+  inviteThirdPlayer,
   setReady,
   submitShareSteal,
 } from "@/lib/actions/player";
@@ -56,6 +57,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   const [team, setTeam] = useState<Team | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [pairedPlayerIds, setPairedPlayerIds] = useState<Set<string>>(new Set());
+  const [teamMemberCount, setTeamMemberCount] = useState(2);
   const [me, setMe] = useState<Player | null>(null);
   const [invites, setInvites] = useState<Invite[]>([]);
   const [matchup, setMatchup] = useState<Matchup | null>(null);
@@ -126,6 +128,12 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     setTeam(data ?? null);
   }, [supabase, teamId]);
 
+  const refreshTeamMemberCount = useCallback(async () => {
+    if (!teamId) return;
+    const { count } = await supabase.from("team_members").select("id", { count: "exact", head: true }).eq("team_id", teamId);
+    setTeamMemberCount(count ?? 2);
+  }, [supabase, teamId]);
+
   const refreshInvites = useCallback(async () => {
     if (!playerId) return;
     const { data } = await supabase
@@ -186,6 +194,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     refreshPairedPlayers();
     refreshMyTeamMembership();
     refreshTeam();
+    refreshTeamMemberCount();
     refreshInvites();
     refreshCards();
     refreshFinalist();
@@ -196,6 +205,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     refreshPairedPlayers,
     refreshMyTeamMembership,
     refreshTeam,
+    refreshTeamMemberCount,
     refreshInvites,
     refreshCards,
     refreshFinalist,
@@ -215,6 +225,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "team_members" }, () => {
         refreshPairedPlayers();
         refreshMyTeamMembership();
+        refreshTeamMemberCount();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "pair_invites" }, refreshInvites)
       .on("postgres_changes", { event: "*", schema: "public", table: "teams" }, refreshTeam)
@@ -232,6 +243,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     refreshRoster,
     refreshPairedPlayers,
     refreshMyTeamMembership,
+    refreshTeamMemberCount,
     refreshInvites,
     refreshTeam,
     refreshMatchup,
@@ -419,6 +431,9 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   return (
     <Screen>
       <PlayerHeader team={team} />
+      {teamMemberCount < 3 && !["finalist", "non_finalist"].includes(team.status) && (
+        <AddThirdPlayer teamId={teamId} players={players} pairedPlayerIds={pairedPlayerIds} notify={notify} />
+      )}
       {team.status === "round1" && (
         <Round1Flow
           teamId={teamId}
@@ -888,6 +903,76 @@ function PairingLobby({
             }}
           >
             {outgoing?.to_player_id === p.id ? "Cancel" : "Invite"}
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AddThirdPlayer({
+  teamId,
+  players,
+  pairedPlayerIds,
+  notify,
+}: {
+  teamId: string;
+  players: Player[];
+  pairedPlayerIds: Set<string>;
+  notify: (msg: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const available = players.filter((p) => p.claim_status === "claimed" && !pairedPlayerIds.has(p.id));
+
+  if (!expanded) {
+    return (
+      <button className="btn-outline" style={{ width: "100%", marginBottom: 20, fontSize: 14 }} onClick={() => setExpanded(true)}>
+        + Add a 3rd player
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ marginBottom: 20, border: "1px solid var(--line)", padding: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <p className="label" style={{ margin: 0 }}>
+          Add a 3rd player
+        </p>
+        <button
+          className="btn-outline"
+          style={{ width: 32, height: 32, minHeight: 32, padding: 0, border: "1.6px solid var(--line)" }}
+          aria-label="Close"
+          onClick={() => setExpanded(false)}
+        >
+          ✕
+        </button>
+      </div>
+      {available.length === 0 && <p style={{ color: "var(--muted)", fontSize: 14 }}>No unpaired players available.</p>}
+      {available.map((p) => (
+        <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 0" }}>
+          <Portrait name={p.display_name} size={32} />
+          <div style={{ flex: 1 }}>{p.display_name}</div>
+          <button
+            className="btn"
+            style={{ width: "auto", minHeight: "auto", padding: "8px 16px", fontSize: 14 }}
+            disabled={pendingId === p.id}
+            onClick={async () => {
+              setPendingId(p.id);
+              try {
+                const result = await inviteThirdPlayer(teamId, p.id);
+                if (result.ok) {
+                  notify(`${p.display_name} added to your team.`);
+                  setExpanded(false);
+                } else {
+                  notify(result.reason === "team_full" ? "Your team is already full." : "Could not add that player.");
+                }
+              } finally {
+                setPendingId(null);
+              }
+            }}
+          >
+            Add
           </button>
         </div>
       ))}
