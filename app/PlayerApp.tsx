@@ -7,6 +7,7 @@ import { GameTimer } from "@/components/GameTimer";
 import { PhotoCapture } from "@/components/PhotoCapture";
 import { TriviaFlow } from "@/components/TriviaFlow";
 import { ClubsPairingFlow } from "@/components/ClubsPairingFlow";
+import { ChickenPhotoFlow } from "@/components/ChickenPhotoFlow";
 import { CardDisplay, ProgressTrack } from "@/components/CardDisplay";
 import { CARD_META, NON_FINALIST_MESSAGE, resolveShareSteal, type CardCode, type ShareStealChoice } from "@/lib/game/rules";
 import {
@@ -544,7 +545,13 @@ export function PlayerApp({ eventId }: { eventId: string }) {
       )}
       {team.status === "round3" && (
         <TriviaFlow teamId={teamId} roundNumber={2} isActiveController={isActiveController} notify={notify}>
-          <CheckpointWait label="2 of Diamonds" personName="Michelle" direction={CARD_META.club8.direction} />
+          <ChickenPhotoFlow
+            teamId={teamId}
+            isActiveController={isActiveController}
+            notify={notify}
+            waitingLabel="2 of Diamonds"
+            waitingDirection={CARD_META.club8.direction}
+          />
         </TriviaFlow>
       )}
       {team.status === "final_waiting" && (

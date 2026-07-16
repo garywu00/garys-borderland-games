@@ -104,14 +104,55 @@ export async function giveByeRound2(teamId: string) {
   return { ok: true as const };
 }
 
-export async function recordDiamondsPass(teamId: string) {
+/**
+ * Michelle marks a Round 3 team as arrived — mirrors confirmArrival's own
+ * checkpoint_arrivals insert. Once arrived, the team's own screen shows the
+ * chicken-photo challenge instructions (see components/ChickenPhotoFlow.tsx).
+ */
+export async function markArrivedRound3(teamId: string) {
   const manager = await requireManager();
   const admin = createAdminClient();
 
-  await admin.from("collected_cards").insert({ team_id: teamId, card_code: "diamond2", awarded_by: manager.id }).select();
-  await admin.from("teams").update({ status: "final_waiting" }).eq("id", teamId);
+  const { data: team } = await admin.from("teams").select("status").eq("id", teamId).maybeSingle();
+  if (!team || team.status !== "round3") return { ok: false as const, reason: "not_found" as const };
 
-  await logAction(manager.id, manager.role, "Diamonds Pass", teamId, null, { card: "diamond2" });
+  const { error } = await admin
+    .from("checkpoint_arrivals")
+    .insert({ team_id: teamId, checkpoint: "diamonds", confirmed_by: manager.id });
+  if (error) return { ok: false as const, reason: "already_arrived" as const };
+
+  await logAction(manager.id, manager.role, "Marked Round 3 arrival", teamId, null, { checkpoint: "diamonds" });
+  return { ok: true as const };
+}
+
+/**
+ * Michelle reviews a submitted chicken photo. Approving does exactly what
+ * the old one-button recordDiamondsPass used to (award diamond2, advance
+ * to final_waiting) — this replaces it as the only way a Round 3 team now
+ * advances. Rejecting leaves the team able to retake and resubmit.
+ */
+export async function reviewChallengePhoto(submissionId: string, decision: "approved" | "rejected") {
+  const manager = await requireManager();
+  const admin = createAdminClient();
+
+  const { data: submission } = await admin
+    .from("challenge_submissions")
+    .select("id, team_id, status")
+    .eq("id", submissionId)
+    .maybeSingle();
+  if (!submission || submission.status !== "pending") return { ok: false as const, reason: "not_found" as const };
+
+  await admin
+    .from("challenge_submissions")
+    .update({ status: decision, reviewed_by: manager.id, reviewed_at: new Date().toISOString() })
+    .eq("id", submissionId);
+
+  if (decision === "approved") {
+    await admin.from("collected_cards").insert({ team_id: submission.team_id, card_code: "diamond2", awarded_by: manager.id }).select();
+    await admin.from("teams").update({ status: "final_waiting" }).eq("id", submission.team_id);
+  }
+
+  await logAction(manager.id, manager.role, `Reviewed chicken photo: ${decision}`, submission.team_id, null, { submissionId, decision });
   return { ok: true as const };
 }
 

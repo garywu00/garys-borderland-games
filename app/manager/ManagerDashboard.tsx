@@ -6,7 +6,8 @@ import { PortraitPair, Portrait } from "@/components/Portrait";
 import {
   pairClubsTeams,
   resolveClubsPass,
-  recordDiamondsPass,
+  markArrivedRound3,
+  reviewChallengePhoto,
   adjustHeartsManual,
   confirmArrival,
   verifyWinner,
@@ -22,6 +23,7 @@ import {
 } from "@/lib/actions/manager";
 import { overrideTriviaResult } from "@/lib/actions/trivia";
 import { getTriviaQuestion } from "@/lib/game/trivia";
+import { getChallengePhotoUrl } from "@/lib/actions/photos";
 
 type Team = { id: string; name: string; hearts_cached: number; status: string; event_id: string };
 type Finalist = { team_id: string; slot: number };
@@ -41,6 +43,8 @@ type TriviaAttempt = {
 };
 type Tab = "overview" | "trivia" | "hearts" | "clubs" | "diamonds" | "spades";
 type ClubsPairing = { id: string; team_a_id: string; team_b_id: string; status: string };
+type CheckpointArrival = { team_id: string; checkpoint: string };
+type ChallengeSubmission = { id: string; team_id: string; challenge_code: string; storage_path: string; status: string; submitted_at: string };
 
 const ROUND_TABS: { id: Tab; label: string }[] = [
   { id: "hearts", label: "1 · Hearts" },
@@ -58,6 +62,8 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
   const [recentActions, setRecentActions] = useState<ActivityEntry[]>([]);
   const [triviaAttempts, setTriviaAttempts] = useState<TriviaAttempt[]>([]);
   const [clubsPairings, setClubsPairings] = useState<ClubsPairing[]>([]);
+  const [diamondsArrivals, setDiamondsArrivals] = useState<CheckpointArrival[]>([]);
+  const [challengeSubmissions, setChallengeSubmissions] = useState<ChallengeSubmission[]>([]);
   const [toast, setToastMsg] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
 
@@ -91,6 +97,13 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
       .select("id, team_a_id, team_b_id, status")
       .eq("status", "active");
     setClubsPairings(cp ?? []);
+    const { data: da } = await supabase.from("checkpoint_arrivals").select("team_id, checkpoint").eq("checkpoint", "diamonds");
+    setDiamondsArrivals(da ?? []);
+    const { data: cs } = await supabase
+      .from("challenge_submissions")
+      .select("id, team_id, challenge_code, storage_path, status, submitted_at")
+      .order("submitted_at", { ascending: false });
+    setChallengeSubmissions(cs ?? []);
   }, [supabase]);
 
   useEffect(() => {
@@ -104,6 +117,8 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
       .on("postgres_changes", { event: "*", schema: "public", table: "manager_actions" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "team_trivia_attempts" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "clubs_pairings" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "checkpoint_arrivals" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "challenge_submissions" }, refresh)
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
@@ -241,11 +256,17 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
       )}
 
       {activeTab === "diamonds" && (
-        <DiamondsView
+        <MichelleReviewView
           teams={teams.filter((t) => t.status === "round3")}
-          onPass={async (id) => {
-            await recordDiamondsPass(id);
-            notify("Marked Pass — advanced to final checkpoint.");
+          arrivals={diamondsArrivals}
+          submissions={challengeSubmissions}
+          onMarkArrived={async (id) => {
+            const result = await markArrivedRound3(id);
+            notify(result.ok ? "Marked arrived." : "Could not mark arrived.");
+          }}
+          onReview={async (submissionId, decision) => {
+            const result = await reviewChallengePhoto(submissionId, decision);
+            notify(result.ok ? (decision === "approved" ? "Approved — advanced to final checkpoint." : "Rejected — team can retake.") : "Could not review.");
           }}
           onAdjust={onAdjust}
         />
@@ -558,28 +579,39 @@ function PairTeamsModal({
   );
 }
 
-function DiamondsView({
+function MichelleReviewView({
   teams,
-  onPass,
+  arrivals,
+  submissions,
+  onMarkArrived,
+  onReview,
   onAdjust,
 }: {
   teams: Team[];
-  onPass: (id: string) => void;
+  arrivals: CheckpointArrival[];
+  submissions: ChallengeSubmission[];
+  onMarkArrived: (id: string) => void;
+  onReview: (submissionId: string, decision: "approved" | "rejected") => void;
   onAdjust: (id: string, delta: number) => void;
 }) {
+  const arrivedTeamIds = new Set(arrivals.map((a) => a.team_id));
+  const notArrived = teams.filter((t) => !arrivedTeamIds.has(t.id));
+  const pending = submissions.filter((s) => s.status === "pending" && teams.some((t) => t.id === s.team_id));
+
   return (
     <div>
       <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, textAlign: "center", marginBottom: 16 }}>2 of Diamonds Game</h2>
-      <p className="label">Pairs at this round ({teams.length})</p>
-      {teams.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>No pairs currently at the Diamonds checkpoint.</p>}
-      {teams.map((t) => (
+
+      <p className="label">Not yet arrived ({notArrived.length})</p>
+      {notArrived.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>Every team here has checked in.</p>}
+      {notArrived.map((t) => (
         <TeamRow
           key={t.id}
           team={t}
           right={
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <button className="btn" style={{ width: "auto", minHeight: "auto", padding: "10px 16px", fontSize: 14 }} onClick={() => onPass(t.id)}>
-                Mark Pass
+              <button className="btn" style={{ width: "auto", minHeight: "auto", padding: "10px 16px", fontSize: 14 }} onClick={() => onMarkArrived(t.id)}>
+                Mark arrived
               </button>
               <button
                 className="btn-outline"
@@ -595,8 +627,40 @@ function DiamondsView({
           }
         />
       ))}
+
+      <p className="label" style={{ marginTop: 20 }}>
+        Chicken photos to review ({pending.length})
+      </p>
+      {pending.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>Nothing waiting on review.</p>}
+      {pending.map((s) => {
+        const team = teams.find((t) => t.id === s.team_id);
+        return (
+          <div key={s.id} style={{ border: "1.6px solid var(--line)", padding: 14, marginBottom: 10 }}>
+            <div style={{ fontSize: 16, marginBottom: 8 }}>{team?.name ?? "Unknown team"}</div>
+            <SubmissionPhoto storagePath={s.storage_path} />
+            <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+              <button className="btn" style={{ flex: 1 }} onClick={() => onReview(s.id, "approved")}>
+                Approve
+              </button>
+              <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => onReview(s.id, "rejected")}>
+                Reject
+              </button>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
+}
+
+function SubmissionPhoto({ storagePath }: { storagePath: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    getChallengePhotoUrl(storagePath).then(setUrl);
+  }, [storagePath]);
+  if (!url) return <p style={{ color: "var(--muted)", fontSize: 13 }}>Loading photo…</p>;
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={url} alt="Submitted chicken photo" style={{ width: "100%", maxWidth: 300, border: "1.6px solid var(--line)" }} />;
 }
 
 function SpadesView({
