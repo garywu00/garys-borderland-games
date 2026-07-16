@@ -969,9 +969,10 @@ function PostPairingScreen({
     <Stack>
       <h2 style={{ fontWeight: 400, fontSize: 24 }}>You&apos;re paired up</h2>
       <p style={{ fontSize: 15, textAlign: "center", maxWidth: 320 }}>
-        Get to <strong>Focal Point Brewery</strong> before the other pairs. Along the way you&apos;ll gain and lose{" "}
-        <strong style={{ color: "var(--accent)" }}>hearts</strong> — if you run out, you&apos;re out of the game. The
-        first 3 pairs to finish all 3 checkpoints and arrive compete in one final game.
+        Get to a <strong>mystery final location</strong> before the other pairs — you&apos;ll find out where along
+        the way. Along the way you&apos;ll gain and lose <strong style={{ color: "var(--accent)" }}>hearts</strong> —
+        if you run out, you&apos;re out of the game. The first 3 pairs to finish all 3 checkpoints and arrive compete
+        in one final game.
       </p>
       <p style={{ fontSize: 14, textAlign: "center", color: "var(--muted)", maxWidth: 320 }}>
         Only one of you needs to keep this screen open — your partner can just play along.

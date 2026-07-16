@@ -27,12 +27,15 @@ export async function voteClubsFail(teamId: string) {
   // unique(pairing_id, team_id) makes a repeat vote a harmless no-op
   if (voteErr) return { ok: true as const, resolved: false };
 
+  // A solo challenge (team_b_id null) has nobody to wait on — resolves on
+  // this single vote.
+  const requiredTeamIds = [pairing.team_a_id, pairing.team_b_id].filter((id): id is string => id !== null);
   const { data: votes } = await admin.from("clubs_fail_votes").select("team_id").eq("pairing_id", pairing.id);
   const votedTeamIds = new Set((votes ?? []).map((v) => v.team_id));
-  const bothVoted = votedTeamIds.has(pairing.team_a_id) && votedTeamIds.has(pairing.team_b_id);
-  if (!bothVoted) return { ok: true as const, resolved: false };
+  const allVoted = requiredTeamIds.every((id) => votedTeamIds.has(id));
+  if (!allVoted) return { ok: true as const, resolved: false };
 
-  for (const otherTeamId of [pairing.team_a_id, pairing.team_b_id]) {
+  for (const otherTeamId of requiredTeamIds) {
     const result = await applyHeartDelta(otherTeamId, -2, "round2", pairing.id, "system");
     if (!result.eliminated) {
       await admin.from("collected_cards").insert({ team_id: otherTeamId, card_code: "club8", awarded_by: "system" }).select();

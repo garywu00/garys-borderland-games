@@ -28,12 +28,19 @@ export async function logAction(
  * itself (and how it resolves, pass or fail) happens afterward, on the
  * teams' own screens or via resolveClubsPass below.
  */
-export async function pairClubsTeams(teamAId: string, teamBId: string) {
+/**
+ * teamBId null means a solo challenge — Ajan gives teamA a smaller version
+ * of the spinach bag instead of pairing them with another team. Every
+ * downstream path (resolveClubsPass, voteClubsFail) already treats
+ * team_b_id generically and handles it being absent.
+ */
+export async function pairClubsTeams(teamAId: string, teamBId: string | null) {
   const manager = await requireManager();
   const admin = createAdminClient();
 
-  const { data: teamsData } = await admin.from("teams").select("id, status, event_id").in("id", [teamAId, teamBId]);
-  if (!teamsData || teamsData.length !== 2 || teamsData.some((t) => t.status !== "round2")) {
+  const idsToCheck = teamBId ? [teamAId, teamBId] : [teamAId];
+  const { data: teamsData } = await admin.from("teams").select("id, status, event_id").in("id", idsToCheck);
+  if (!teamsData || teamsData.length !== idsToCheck.length || teamsData.some((t) => t.status !== "round2")) {
     return { ok: false as const, reason: "not_eligible" as const };
   }
 
@@ -45,7 +52,10 @@ export async function pairClubsTeams(teamAId: string, teamBId: string) {
   });
   if (error) return { ok: false as const, reason: "conflict" as const };
 
-  await logAction(manager.id, manager.role, "Paired Clubs teams", teamAId, null, { teamAId, teamBId });
+  await logAction(manager.id, manager.role, teamBId ? "Paired Clubs teams" : "Assigned solo Clubs challenge", teamAId, null, {
+    teamAId,
+    teamBId,
+  });
   return { ok: true as const };
 }
 
@@ -66,7 +76,8 @@ export async function resolveClubsPass(pairingId: string) {
     .maybeSingle();
   if (!pairing || pairing.status !== "active") return { ok: false as const, reason: "not_found" as const };
 
-  for (const teamId of [pairing.team_a_id, pairing.team_b_id]) {
+  const teamIds = [pairing.team_a_id, pairing.team_b_id].filter((id): id is string => id !== null);
+  for (const teamId of teamIds) {
     const result = await applyHeartDelta(teamId, 1, "round2", pairingId, manager.id);
     if (!result.eliminated) {
       await admin.from("collected_cards").insert({ team_id: teamId, card_code: "club8", awarded_by: manager.id }).select();
@@ -309,43 +320,6 @@ export async function closeGame(eventId: string) {
  * queue at the exact same instant. Kept first-come-first-served too, by
  * team creation time, rather than random, to match the live behavior.
  */
-export async function matchUpWaitingTeams() {
-  const manager = await requireManager();
-  const admin = createAdminClient();
-
-  const { data: openMatchups } = await admin
-    .from("matchups")
-    .select("team_a_id, team_b_id")
-    .neq("status", "resolved");
-  const busyTeamIds = new Set<string>();
-  openMatchups?.forEach((m) => {
-    busyTeamIds.add(m.team_a_id);
-    busyTeamIds.add(m.team_b_id);
-  });
-
-  const { data: teams } = await admin
-    .from("teams")
-    .select("id, event_id")
-    .eq("status", "round1")
-    .order("created_at", { ascending: true });
-  const waiting = (teams ?? []).filter((t) => !busyTeamIds.has(t.id));
-
-  const created: string[] = [];
-  for (let i = 0; i + 1 < waiting.length; i += 2) {
-    const teamA = waiting[i]!;
-    const teamB = waiting[i + 1]!;
-    const { data: matchup, error } = await admin
-      .from("matchups")
-      .insert({ event_id: teamA.event_id, team_a_id: teamA.id, team_b_id: teamB.id })
-      .select("id")
-      .single();
-    if (!error && matchup) created.push(matchup.id);
-  }
-
-  await logAction(manager.id, manager.role, "Matched up waiting Round 1 pairs", null, null, { count: created.length });
-  return { ok: true as const, created: created.length, leftoverTeam: waiting.length % 2 === 1 };
-}
-
 /**
  * Clears all pairing/game state (teams, matchups, hearts, cards, checkpoints,
  * finalists, winner results, audit log) back to "roster exists, nobody's

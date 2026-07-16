@@ -11,7 +11,6 @@ import {
   adjustHeartsManual,
   confirmArrival,
   verifyWinner,
-  matchUpWaitingTeams,
   resetGameState,
   updatePlayerName,
   deleteTeam,
@@ -42,9 +41,10 @@ type TriviaAttempt = {
   heart_transaction_id: string | null;
 };
 type Tab = "overview" | "trivia" | "hearts" | "clubs" | "diamonds" | "spades";
-type ClubsPairing = { id: string; team_a_id: string; team_b_id: string; status: string };
+type ClubsPairing = { id: string; team_a_id: string; team_b_id: string | null; status: string };
 type CheckpointArrival = { team_id: string; checkpoint: string };
 type ChallengeSubmission = { id: string; team_id: string; challenge_code: string; storage_path: string; status: string; submitted_at: string };
+type Matchup = { id: string; team_a_id: string; team_b_id: string; status: string };
 
 const ROUND_TABS: { id: Tab; label: string }[] = [
   { id: "hearts", label: "1 · Hearts" },
@@ -62,6 +62,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
   const [recentActions, setRecentActions] = useState<ActivityEntry[]>([]);
   const [triviaAttempts, setTriviaAttempts] = useState<TriviaAttempt[]>([]);
   const [clubsPairings, setClubsPairings] = useState<ClubsPairing[]>([]);
+  const [matchups, setMatchups] = useState<Matchup[]>([]);
   const [diamondsArrivals, setDiamondsArrivals] = useState<CheckpointArrival[]>([]);
   const [challengeSubmissions, setChallengeSubmissions] = useState<ChallengeSubmission[]>([]);
   const [toast, setToastMsg] = useState<string | null>(null);
@@ -104,6 +105,8 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
       .select("id, team_id, challenge_code, storage_path, status, submitted_at")
       .order("submitted_at", { ascending: false });
     setChallengeSubmissions(cs ?? []);
+    const { data: m } = await supabase.from("matchups").select("id, team_a_id, team_b_id, status").neq("status", "resolved");
+    setMatchups(m ?? []);
   }, [supabase]);
 
   useEffect(() => {
@@ -119,6 +122,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
       .on("postgres_changes", { event: "*", schema: "public", table: "clubs_pairings" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "checkpoint_arrivals" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "challenge_submissions" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "matchups" }, refresh)
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
@@ -212,16 +216,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
       {activeTab === "hearts" && (
         <HeartsView
           teams={teams.filter((t) => t.status === "round1")}
-          onCreateMatchups={async () => {
-            const result = await matchUpWaitingTeams();
-            if (!result.ok) {
-              notify("Could not create matchups.");
-            } else if (result.leftoverTeam) {
-              notify(`Created ${result.created} matchup(s). One pair had no opponent — give them a bye below, or wait and re-run this.`);
-            } else {
-              notify(`Created ${result.created} matchup(s).`);
-            }
-          }}
+          matchups={matchups}
           onGiveBye={async (id) => {
             const result = await giveByeRound1(id);
             notify(
@@ -242,6 +237,10 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
           onPair={async (a, b) => {
             const result = await pairClubsTeams(a, b);
             notify(result.ok ? "Paired up." : "Could not pair — check both teams are still at Round 2.");
+          }}
+          onSolo={async (teamId) => {
+            const result = await pairClubsTeams(teamId, null);
+            notify(result.ok ? "Solo challenge assigned." : "Could not assign — check the team is still at Round 2.");
           }}
           onMarkPass={async (pairingId) => {
             const result = await resolveClubsPass(pairingId);
@@ -360,26 +359,26 @@ function TeamRow({ team, right }: { team: Team; right?: React.ReactNode }) {
 
 function HeartsView({
   teams,
-  onCreateMatchups,
+  matchups,
   onGiveBye,
 }: {
   teams: Team[];
-  onCreateMatchups: () => void;
+  matchups: Matchup[];
   onGiveBye: (id: string) => void;
 }) {
+  const busyTeamIds = new Set(matchups.flatMap((m) => [m.team_a_id, m.team_b_id]));
+  const unmatched = teams.filter((t) => !busyTeamIds.has(t.id));
+
   return (
     <div>
       <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, textAlign: "center", marginBottom: 16 }}>4 of Hearts — Round 1</h2>
-      <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 12 }}>
-        Pairs are matched automatically, first-come-first-served, the moment a second pair is ready. Use the button
-        below only to catch stragglers this missed.
+      <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 16 }}>
+        Pairs are matched automatically, first-come-first-served, the moment a second pair is ready. A team only
+        shows up below once it's the odd one out with nobody left to match against.
       </p>
-      <button className="btn btn-outline" style={{ width: "100%", marginBottom: 20 }} onClick={onCreateMatchups}>
-        Match up any waiting pairs
-      </button>
-      <p className="label">Pairs at this round ({teams.length})</p>
-      {teams.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>No pairs currently in Round 1.</p>}
-      {teams.map((t) => (
+      <p className="label">Waiting for an opponent ({unmatched.length})</p>
+      {unmatched.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>Every pair currently in Round 1 has an opponent.</p>}
+      {unmatched.map((t) => (
         <TeamRow
           key={t.id}
           team={t}
@@ -406,13 +405,15 @@ function ClubsView({
   teams,
   pairings,
   onPair,
+  onSolo,
   onMarkPass,
   onGiveBye,
   onAdjust,
 }: {
   teams: Team[];
-  pairings: { id: string; team_a_id: string; team_b_id: string; status: string }[];
+  pairings: ClubsPairing[];
   onPair: (a: string, b: string) => void;
+  onSolo: (teamId: string) => void;
   onMarkPass: (pairingId: string) => void;
   onGiveBye: (id: string) => void;
   onAdjust: (id: string, delta: number) => void;
@@ -439,6 +440,17 @@ function ClubsView({
                 onClick={() => setPairingTeam(t)}
               >
                 Pair up
+              </button>
+              <button
+                className="btn-outline"
+                style={{ width: "auto", minHeight: "auto", padding: "6px 10px", fontSize: 12, border: "1.6px solid var(--line)" }}
+                onClick={() => {
+                  if (confirm(`Give ${t.name} a solo challenge? A smaller version — they'll still have to pass or fail it on their own, no other team involved.`)) {
+                    onSolo(t.id);
+                  }
+                }}
+              >
+                Solo challenge
               </button>
               <button
                 className="btn-outline"
@@ -472,14 +484,18 @@ function ClubsView({
       {pairings.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>No active pairings.</p>}
       {pairings.map((p) => {
         const teamA = teams.find((t) => t.id === p.team_a_id);
-        const teamB = teams.find((t) => t.id === p.team_b_id);
-        if (!teamA || !teamB) return null;
+        const teamB = p.team_b_id ? teams.find((t) => t.id === p.team_b_id) : null;
+        if (!teamA || (p.team_b_id && !teamB)) return null;
         return (
           <div key={p.id} style={{ border: "1.6px solid var(--line)", padding: 14, marginBottom: 10 }}>
             <TeamRow team={teamA} />
-            <TeamRow team={teamB} />
+            {teamB ? (
+              <TeamRow team={teamB} />
+            ) : (
+              <p style={{ color: "var(--muted)", fontSize: 13, padding: "6px 0" }}>Solo challenge — no other team</p>
+            )}
             <button className="btn" style={{ width: "100%" }} onClick={() => onMarkPass(p.id)}>
-              Mark Pass — both teams +1 heart
+              Mark Pass — {teamB ? "both teams" : "this team"} +1 heart
             </button>
           </div>
         );

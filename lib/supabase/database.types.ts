@@ -132,7 +132,7 @@ export type Database = {
           resolved_at: string | null
           status: string
           team_a_id: string
-          team_b_id: string
+          team_b_id: string | null
         }
         Insert: {
           created_at?: string
@@ -142,7 +142,7 @@ export type Database = {
           resolved_at?: string | null
           status?: string
           team_a_id: string
-          team_b_id: string
+          team_b_id?: string | null
         }
         Update: {
           created_at?: string
@@ -152,7 +152,7 @@ export type Database = {
           resolved_at?: string | null
           status?: string
           team_a_id?: string
-          team_b_id?: string
+          team_b_id?: string | null
         }
         Relationships: [
           {

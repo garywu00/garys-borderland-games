@@ -6,7 +6,7 @@ import { PortraitPair } from "@/components/Portrait";
 import { voteClubsFail } from "@/lib/actions/checkpoints";
 import { getTeamPortraits } from "@/lib/actions/photos";
 
-type Pairing = { id: string; team_a_id: string; team_b_id: string; status: string };
+type Pairing = { id: string; team_a_id: string; team_b_id: string | null; status: string };
 type TeamInfo = { id: string; name: string; hearts_cached: number };
 
 export function ClubsPairingFlow({
@@ -70,26 +70,30 @@ export function ClubsPairingFlow({
     [supabase, teamId],
   );
 
+  const isSolo = pairing?.team_b_id === null;
+
   useEffect(() => {
     if (!pairing) {
       setOpponent(null);
       setMyVoted(false);
       return;
     }
-    const opponentId = pairing.team_a_id === teamId ? pairing.team_b_id : pairing.team_a_id;
-    supabase
-      .from("teams")
-      .select("id, name, hearts_cached")
-      .eq("id", opponentId)
-      .maybeSingle()
-      .then(({ data }) => setOpponent(data ?? null));
-    getTeamPortraits(opponentId).then((portraits) => setOpponentPhotos(portraits.map((p) => p.url)));
+    if (pairing.team_b_id) {
+      const opponentId = pairing.team_a_id === teamId ? pairing.team_b_id : pairing.team_a_id;
+      supabase
+        .from("teams")
+        .select("id, name, hearts_cached")
+        .eq("id", opponentId)
+        .maybeSingle()
+        .then(({ data }) => setOpponent(data ?? null));
+      getTeamPortraits(opponentId).then((portraits) => setOpponentPhotos(portraits.map((p) => p.url)));
+    }
     refreshMyVote(pairing.id);
   }, [pairing, teamId, supabase, refreshMyVote]);
 
   if (pairing === undefined) return null;
 
-  if (!pairing || !opponent) {
+  if (!pairing || (!isSolo && !opponent)) {
     return (
       <Stack>
         <p className="label">{waitingLabel}</p>
@@ -105,15 +109,31 @@ export function ClubsPairingFlow({
 
   return (
     <Stack>
-      <p className="label">Paired with</p>
-      <PortraitPair names={opponent.name.split(" + ")} photos={opponentPhotos} size={64} />
-      <h2 style={{ fontWeight: 400, fontSize: 24, textAlign: "center" }}>{opponent.name}</h2>
-      <p style={{ fontSize: 15, textAlign: "center", maxWidth: 320 }}>
-        Work with {opponent.name} to finish the bag of spinach as a group of 4. Show Ajan when you&apos;re done — or
-        agree to give up together.
-      </p>
+      {isSolo ? (
+        <>
+          <p className="label">Your own challenge</p>
+          <p style={{ fontSize: 15, textAlign: "center", maxWidth: 320 }}>
+            Ajan&apos;s given you a smaller bag of spinach — finish it as a pair. Show Ajan when you&apos;re done, or
+            give up if you can&apos;t finish it.
+          </p>
+        </>
+      ) : (
+        opponent && (
+          <>
+            <p className="label">Paired with</p>
+            <PortraitPair names={opponent.name.split(" + ")} photos={opponentPhotos} size={64} />
+            <h2 style={{ fontWeight: 400, fontSize: 24, textAlign: "center" }}>{opponent.name}</h2>
+            <p style={{ fontSize: 15, textAlign: "center", maxWidth: 320 }}>
+              Work with {opponent.name} to finish the bag of spinach as a group of 4. Show Ajan when you&apos;re done
+              — or agree to give up together.
+            </p>
+          </>
+        )
+      )}
       {myVoted ? (
-        <p style={{ color: "var(--muted)", fontSize: 14 }}>Waiting for {opponent.name} to also give up…</p>
+        <p style={{ color: "var(--muted)", fontSize: 14 }}>
+          {isSolo ? "Giving up…" : `Waiting for ${opponent?.name} to also give up…`}
+        </p>
       ) : (
         <button
           className="btn btn-outline"
