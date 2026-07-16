@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Portrait, PortraitPair } from "@/components/Portrait";
 import { GameTimer } from "@/components/GameTimer";
+import { PhotoCapture } from "@/components/PhotoCapture";
 import { CardDisplay, ProgressTrack } from "@/components/CardDisplay";
 import { CARD_META, NON_FINALIST_MESSAGE, type CardCode } from "@/lib/game/rules";
 import {
@@ -17,6 +18,7 @@ import {
   setReady,
   submitShareSteal,
 } from "@/lib/actions/player";
+import { uploadSelfie } from "@/lib/actions/photos";
 
 type Player = { id: string; display_name: string; claim_status: string; selfie_path: string | null };
 type Team = { id: string; name: string; hearts_cached: number; status: string; active_controller_auth_id?: string | null };
@@ -384,6 +386,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
               onClick={async () => {
                 const result = await claimPlayer(me.id);
                 if (result.ok) {
+                  if (selfie) await uploadSelfie(me.id, selfie);
                   setClaimPinShown(result.recoveryPin);
                 } else {
                   notify("That name was just claimed by someone else.");
@@ -690,66 +693,9 @@ function LeaderboardRow({ team, highlight }: { team: Team; highlight: boolean })
 }
 
 function SelfieStep({ onDone }: { onDone: (photo: string | null) => void }) {
-  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
-  const [streaming, setStreaming] = useState(false);
-
-  useEffect(() => {
-    if (!videoEl) return;
-    let stream: MediaStream | null = null;
-    navigator.mediaDevices
-      ?.getUserMedia({ video: { facingMode: "user" } })
-      .then((s) => {
-        stream = s;
-        videoEl.srcObject = s;
-        setStreaming(true);
-      })
-      .catch(() => setStreaming(false));
-    return () => stream?.getTracks().forEach((t) => t.stop());
-  }, [videoEl]);
-
-  function capture() {
-    if (!videoEl || !streaming) {
-      onDone(null);
-      return;
-    }
-    const canvas = document.createElement("canvas");
-    canvas.width = 240;
-    canvas.height = 240;
-    const ctx = canvas.getContext("2d");
-    const side = Math.min(videoEl.videoWidth, videoEl.videoHeight);
-    // Mirror the capture to match the mirrored preview — this is what a
-    // "selfie" is expected to look like, not the raw front-camera feed.
-    ctx?.translate(240, 0);
-    ctx?.scale(-1, 1);
-    ctx?.drawImage(videoEl, (videoEl.videoWidth - side) / 2, (videoEl.videoHeight - side) / 2, side, side, 0, 0, 240, 240);
-    onDone(canvas.toDataURL("image/jpeg", 0.7));
-  }
-
   return (
     <Stack>
-      <p className="label">Smile :)</p>
-      <div style={{ width: 240, height: 240, border: "2px solid var(--line)", background: "var(--portrait-bg)", overflow: "hidden" }}>
-        <video
-          ref={setVideoEl}
-          playsInline
-          autoPlay
-          muted
-          style={{
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            filter: "grayscale(1)",
-            transform: "scaleX(-1)",
-            display: streaming ? "block" : "none",
-          }}
-        />
-      </div>
-      <button className="btn" style={{ width: "100%" }} onClick={capture}>
-        Take Photo
-      </button>
-      <button className="btn btn-outline" style={{ width: "100%" }} onClick={() => onDone(null)}>
-        Use a placeholder instead
-      </button>
+      <PhotoCapture label="Smile :)" onCapture={onDone} onSkip={() => onDone(null)} />
     </Stack>
   );
 }

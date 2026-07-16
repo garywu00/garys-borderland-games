@@ -1,32 +1,8 @@
 "use server";
 
-import { createAdminClient, createSessionClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/server";
 import { applyHeartDelta } from "@/lib/actions/hearts";
-
-type ManagerRole = "ajan" | "michelle" | "gary";
-
-/**
- * All three managers have equal controls — Ajan/Michelle/Gary can each
- * operate any checkpoint, confirm arrivals, verify the winner, and reset the
- * game, so any one of them can cover for another on the day of. `role` is
- * still returned so the audit log records who actually did what.
- */
-async function requireManager(): Promise<{ id: string; role: ManagerRole }> {
-  const session = await createSessionClient();
-  const { data } = await session.auth.getUser();
-  if (!data.user) throw new Error("Not authenticated");
-
-  const admin = createAdminClient();
-  const { data: profile } = await admin
-    .from("manager_profiles")
-    .select("id, role")
-    .eq("id", data.user.id)
-    .single();
-  if (!profile) {
-    throw new Error("Unauthorized manager action");
-  }
-  return { id: profile.id, role: profile.role as ManagerRole };
-}
+import { requireManager } from "@/lib/actions/session";
 
 async function logAction(
   actorId: string,

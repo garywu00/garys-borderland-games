@@ -14,6 +14,47 @@ export type Database = {
   }
   public: {
     Tables: {
+      challenge_submissions: {
+        Row: {
+          challenge_code: string
+          id: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          storage_path: string
+          submitted_at: string
+          team_id: string
+        }
+        Insert: {
+          challenge_code: string
+          id?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          storage_path: string
+          submitted_at?: string
+          team_id: string
+        }
+        Update: {
+          challenge_code?: string
+          id?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          storage_path?: string
+          submitted_at?: string
+          team_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "challenge_submissions_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       checkpoint_arrivals: {
         Row: {
           arrived_at: string
