@@ -1,15 +1,9 @@
 "use server";
 
 import bcrypt from "bcryptjs";
-import { createAdminClient, createSessionClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/server";
 import { resolveShareSteal, type ShareStealChoice, type CardCode } from "@/lib/game/rules";
-
-async function requireAuthId(): Promise<string> {
-  const session = await createSessionClient();
-  const { data } = await session.auth.getUser();
-  if (!data.user) throw new Error("Not authenticated");
-  return data.user.id;
-}
+import { requireAuthId, requireActiveController } from "@/lib/actions/session";
 
 async function activeEventId(admin: ReturnType<typeof createAdminClient>): Promise<string> {
   const { data, error } = await admin
@@ -290,6 +284,9 @@ export async function submitShareSteal(
   choice: ShareStealChoice,
   isTimeoutDefault = false,
 ) {
+  const controller = await requireActiveController(teamId);
+  if (!controller.ok) return controller;
+
   const admin = createAdminClient();
 
   const { error: insertErr } = await admin

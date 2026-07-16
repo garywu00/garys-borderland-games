@@ -19,7 +19,7 @@ import {
 } from "@/lib/actions/player";
 
 type Player = { id: string; display_name: string; claim_status: string; selfie_path: string | null };
-type Team = { id: string; name: string; hearts_cached: number; status: string };
+type Team = { id: string; name: string; hearts_cached: number; status: string; active_controller_auth_id?: string | null };
 type Invite = { id: string; from_player_id: string; to_player_id: string; status: string };
 type Matchup = {
   id: string;
@@ -73,6 +73,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   const [myChoice, setMyChoice] = useState<"share" | "steal" | null>(null);
   const [toast, setToastMsg] = useState<string | null>(null);
   const [eventStartsAt, setEventStartsAt] = useState<string | null>(null);
+  const [myAuthId, setMyAuthId] = useState<string | null>(null);
 
   function notify(msg: string) {
     setToastMsg(msg);
@@ -83,9 +84,12 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   useEffect(() => {
     (async () => {
       const { data } = await supabase.auth.getSession();
-      if (!data.session) {
-        await supabase.auth.signInAnonymously();
+      let session = data.session;
+      if (!session) {
+        const { data: signInData } = await supabase.auth.signInAnonymously();
+        session = signInData.session;
       }
+      setMyAuthId(session?.user.id ?? null);
       const local = loadLocal();
       setPlayerId(local.playerId);
       setTeamId(local.teamId);
@@ -129,7 +133,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     if (!teamId) return;
     const { data } = await supabase
       .from("teams")
-      .select("id, name, hearts_cached, status")
+      .select("id, name, hearts_cached, status, active_controller_auth_id")
       .eq("id", teamId)
       .maybeSingle();
     setTeam(data ?? null);
@@ -454,6 +458,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
           myChoice={myChoice}
           setMyChoice={setMyChoice}
           notify={notify}
+          isActiveController={!team.active_controller_auth_id || team.active_controller_auth_id === myAuthId}
         />
       )}
       {team.status === "round2" && (
@@ -996,6 +1001,7 @@ function Round1Flow({
   myChoice,
   setMyChoice,
   notify,
+  isActiveController,
 }: {
   teamId: string;
   team: Team;
@@ -1004,6 +1010,7 @@ function Round1Flow({
   myChoice: "share" | "steal" | null;
   setMyChoice: (c: "share" | "steal" | null) => void;
   notify: (msg: string) => void;
+  isActiveController: boolean;
 }) {
   const [submitting, setSubmitting] = useState(false);
   const [rulesSeen, setRulesSeen] = useState(false);
@@ -1056,23 +1063,29 @@ function Round1Flow({
 
   if (matchup.status === "active") {
     const mySubmitted = myChoice !== null;
+    const locked = mySubmitted || !isActiveController;
     return (
       <Stack>
         <p className="label">Select your action</p>
+        {!isActiveController && (
+          <p style={{ color: "var(--muted)", fontSize: 14, textAlign: "center" }}>
+            Only your partner can submit on this device — ask them to.
+          </p>
+        )}
         <div style={{ display: "flex", gap: 16, width: "100%" }}>
           {(["share", "steal"] as const).map((choice) => (
             <button
               key={choice}
               className="btn-outline"
               aria-pressed={myChoice === choice}
-              disabled={mySubmitted}
+              disabled={locked}
               style={{
                 flex: 1,
                 border: "2px solid var(--line)",
                 padding: "36px 12px",
                 background: myChoice === choice ? "var(--btn-bg)" : "transparent",
                 color: myChoice === choice ? "var(--btn-fg)" : "var(--fg)",
-                cursor: mySubmitted ? "not-allowed" : "pointer",
+                cursor: locked ? "not-allowed" : "pointer",
               }}
               onClick={() => setMyChoice(choice)}
             >
@@ -1083,13 +1096,15 @@ function Round1Flow({
         <button
           className="btn"
           style={{ width: "100%" }}
-          disabled={!myChoice || submitting}
+          disabled={!myChoice || submitting || locked}
           onClick={async () => {
             if (!myChoice) return;
             setSubmitting(true);
             try {
               const result = await submitShareSteal(matchup.id, teamId, myChoice);
-              if (!result.ok) notify("Already submitted.");
+              if (!result.ok) {
+                notify(result.reason === "not_active_controller" ? "Only your partner can submit on this device." : "Already submitted.");
+              }
             } finally {
               setSubmitting(false);
             }
