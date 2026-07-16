@@ -1,12 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Portrait, PortraitPair } from "@/components/Portrait";
 import { GameTimer } from "@/components/GameTimer";
 import { PhotoCapture } from "@/components/PhotoCapture";
 import { CardDisplay, ProgressTrack } from "@/components/CardDisplay";
-import { CARD_META, NON_FINALIST_MESSAGE, type CardCode } from "@/lib/game/rules";
+import { CARD_META, NON_FINALIST_MESSAGE, resolveShareSteal, type CardCode, type ShareStealChoice } from "@/lib/game/rules";
 import {
   claimPlayer,
   recoverWithPin,
@@ -31,7 +31,9 @@ type Matchup = {
   team_a_ready: boolean;
   team_b_ready: boolean;
   deadline_at: string | null;
+  resolved_at: string | null;
 };
+type ShareStealSubmission = { team_id: string; choice: ShareStealChoice };
 
 const SHARE_STEAL_RULES_COPY =
   "You'll be randomly assigned a pair to play against. Without consulting the opposing pair, decide whether " +
@@ -92,6 +94,10 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   const [me, setMe] = useState<Player | null>(null);
   const [invites, setInvites] = useState<Invite[]>([]);
   const [matchup, setMatchup] = useState<Matchup | null>(null);
+  const [shareStealSubmissions, setShareStealSubmissions] = useState<ShareStealSubmission[]>([]);
+  const [revealMatchupId, setRevealMatchupId] = useState<string | null>(null);
+  const [revealDismissed, setRevealDismissed] = useState(true);
+  const prevMatchupStatusRef = useRef<string | null>(null);
   const [opponentTeam, setOpponentTeam] = useState<Team | null>(null);
   const [collectedCards, setCollectedCards] = useState<CardCode[]>([]);
   const [finalistSlot, setFinalistSlot] = useState<number | null>(null);
@@ -188,14 +194,14 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   }, [supabase, playerId]);
 
   const refreshMatchup = useCallback(async () => {
-    if (!teamId || !team) return;
-    if (!["round1"].includes(team.status)) {
-      setMatchup(null);
-      return;
-    }
+    if (!teamId) return;
+    // Not gated on team.status — a resolved Round 1 matchup must stay
+    // readable after status advances to round2, or the dramatic reveal
+    // screen (which renders based on matchup state, not team.status,
+    // precisely to survive that transition) would lose its data mid-reveal.
     const { data } = await supabase
       .from("matchups")
-      .select("id, team_a_id, team_b_id, status, team_a_ready, team_b_ready, deadline_at")
+      .select("id, team_a_id, team_b_id, status, team_a_ready, team_b_ready, deadline_at, resolved_at")
       .or(`team_a_id.eq.${teamId},team_b_id.eq.${teamId}`)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -206,7 +212,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
       const { data: opp } = await supabase.from("teams").select("id, name, hearts_cached, status").eq("id", oppId).maybeSingle();
       setOpponentTeam(opp ?? null);
     }
-  }, [supabase, teamId, team]);
+  }, [supabase, teamId]);
 
   const refreshCards = useCallback(async () => {
     if (!teamId) return;
@@ -260,6 +266,30 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   useEffect(() => {
     refreshMatchup();
   }, [refreshMatchup]);
+
+  // Detects a LIVE transition into "resolved" (as opposed to loading an
+  // already-resolved matchup, e.g. on a page refresh well after Round 1) —
+  // only the former should trigger the dramatic reveal screen, so a reload
+  // during round2+ doesn't resurrect a reveal the player already saw.
+  useEffect(() => {
+    if (!matchup) return;
+    const prevStatus = prevMatchupStatusRef.current;
+    if (matchup.status === "resolved" && prevStatus && prevStatus !== "resolved") {
+      setRevealMatchupId(matchup.id);
+      setRevealDismissed(false);
+    }
+    prevMatchupStatusRef.current = matchup.status;
+  }, [matchup]);
+
+  const refreshShareStealSubmissions = useCallback(async () => {
+    if (!matchup || matchup.status !== "resolved") return;
+    const { data } = await supabase.from("share_steal_submissions").select("team_id, choice").eq("matchup_id", matchup.id);
+    setShareStealSubmissions((data as ShareStealSubmission[] | null) ?? []);
+  }, [supabase, matchup]);
+
+  useEffect(() => {
+    refreshShareStealSubmissions();
+  }, [refreshShareStealSubmissions]);
 
   // Realtime: keep everything live
   useEffect(() => {
@@ -455,6 +485,24 @@ export function PlayerApp({ eventId }: { eventId: string }) {
             setPinShown(null);
           }}
           notify={notify}
+        />
+        <Toast msg={toast} />
+      </Screen>
+    );
+  }
+
+  // ---------- Share/Steal reveal (takes over the whole screen; gated on the
+  // matchup, not team.status, since status advances synchronously the
+  // instant resolution happens) ----------
+  if (matchup && matchup.id === revealMatchupId && matchup.status === "resolved" && !revealDismissed && opponentTeam) {
+    return (
+      <Screen startsAt={eventStartsAt}>
+        <ShareStealReveal
+          team={team}
+          opponentTeam={opponentTeam}
+          matchup={matchup}
+          submissions={shareStealSubmissions}
+          onDismiss={() => setRevealDismissed(true)}
         />
         <Toast msg={toast} />
       </Screen>
@@ -1011,6 +1059,124 @@ function AddThirdPlayer({
           </button>
         </div>
       ))}
+    </div>
+  );
+}
+
+const REVEAL_COUNTDOWN_MS = 3000;
+
+function ShareStealReveal({
+  team,
+  opponentTeam,
+  matchup,
+  submissions,
+  onDismiss,
+}: {
+  team: Team;
+  opponentTeam: Team;
+  matchup: Matchup;
+  submissions: ShareStealSubmission[];
+  onDismiss: () => void;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  const [myPhotos, setMyPhotos] = useState<(string | null)[]>([]);
+  const [opponentPhotos, setOpponentPhotos] = useState<(string | null)[]>([]);
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 200);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    getTeamPortraits(team.id).then((p) => setMyPhotos(p.map((x) => x.url)));
+    getTeamPortraits(opponentTeam.id).then((p) => setOpponentPhotos(p.map((x) => x.url)));
+  }, [team.id, opponentTeam.id]);
+
+  // Anchored to the server's resolved_at, not local reveal-start time — a
+  // client that loads late (backgrounded app, slow reconnect) computes 0
+  // remaining immediately and lands straight on the revealed state instead
+  // of rewinding or getting stuck.
+  const resolvedAtMs = matchup.resolved_at ? new Date(matchup.resolved_at).getTime() : now;
+  const remainingMs = Math.max(0, REVEAL_COUNTDOWN_MS - (now - resolvedAtMs));
+  const revealed = remainingMs <= 0;
+  const countdownNumber = Math.max(1, Math.ceil(remainingMs / 1000));
+
+  const mySub = submissions.find((s) => s.team_id === team.id);
+  const opponentSub = submissions.find((s) => s.team_id === opponentTeam.id);
+  const outcome = mySub && opponentSub ? resolveShareSteal(mySub.choice, opponentSub.choice) : null;
+
+  return (
+    <Stack>
+      <p className="label">Results</p>
+      <div style={{ display: "flex", gap: 20, width: "100%", justifyContent: "center" }}>
+        <RevealColumn
+          label="YOUR PAIR"
+          names={team.name.split(" + ")}
+          photos={myPhotos}
+          choice={revealed ? mySub?.choice : undefined}
+          delta={revealed ? outcome?.deltaA : undefined}
+        />
+        <RevealColumn
+          label="OPPONENTS"
+          names={opponentTeam.name.split(" + ")}
+          photos={opponentPhotos}
+          choice={revealed ? opponentSub?.choice : undefined}
+          delta={revealed ? outcome?.deltaB : undefined}
+        />
+      </div>
+      {!revealed && (
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 72, fontWeight: 700 }}>{countdownNumber}…</div>
+      )}
+      {revealed && outcome && (
+        <>
+          <p style={{ fontSize: 18, textAlign: "center", maxWidth: 300 }}>{outcome.copyForA}</p>
+          <button className="btn" style={{ width: "100%" }} onClick={onDismiss}>
+            Next game
+          </button>
+        </>
+      )}
+    </Stack>
+  );
+}
+
+function RevealColumn({
+  label,
+  names,
+  photos,
+  choice,
+  delta,
+}: {
+  label: string;
+  names: string[];
+  photos: (string | null)[];
+  choice?: ShareStealChoice;
+  delta?: number;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, flex: 1 }}>
+      <PortraitPair names={names} photos={photos} size={56} />
+      <p className="label" style={{ marginTop: 4 }}>
+        {label}
+      </p>
+      {choice !== undefined && delta !== undefined && (
+        <>
+          <div style={{ fontSize: 15, fontWeight: 600 }}>
+            ♥ {delta > 0 ? `+${delta}` : delta}
+          </div>
+          <div
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              letterSpacing: "0.06em",
+              border: "1.6px solid var(--line)",
+              padding: "4px 10px",
+              textTransform: "uppercase",
+            }}
+          >
+            {choice}
+          </div>
+        </>
+      )}
     </div>
   );
 }
