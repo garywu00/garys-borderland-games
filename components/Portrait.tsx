@@ -61,11 +61,43 @@ export function PortraitPair({
   photos?: (string | null | undefined)[];
   size?: number;
 }) {
+  const shown = names.slice(0, 3);
+
+  // A trio reads much clearer as a triangular cluster (one up top, two
+  // anchored below, slightly overlapping) than as a diagonal 3-card cascade.
+  if (shown.length === 3) {
+    const gap = Math.round(size * 0.15);
+    const vOverlap = Math.round(size * 0.45);
+    const width = size * 2 + gap;
+    const height = size + vOverlap;
+    return (
+      <div style={{ position: "relative", width, height, flexShrink: 0 }}>
+        <Portrait
+          name={shown[0]!}
+          photoUrl={photos?.[0] ?? null}
+          size={size}
+          style={{ position: "absolute", left: (width - size) / 2, top: 0 }}
+        />
+        <Portrait
+          name={shown[1]!}
+          photoUrl={photos?.[1] ?? null}
+          size={size}
+          style={{ position: "absolute", left: 0, top: vOverlap }}
+        />
+        <Portrait
+          name={shown[2]!}
+          photoUrl={photos?.[2] ?? null}
+          size={size}
+          style={{ position: "absolute", left: size + gap, top: vOverlap }}
+        />
+      </div>
+    );
+  }
+
   const offset = Math.round(size * 0.55);
-  const extra = names.length > 2 ? offset : 0;
   return (
-    <div style={{ position: "relative", width: size + offset + extra, height: size + offset + extra, flexShrink: 0 }}>
-      {names.slice(0, 3).map((name, i) => (
+    <div style={{ position: "relative", width: size + offset, height: size + offset, flexShrink: 0 }}>
+      {shown.map((name, i) => (
         <Portrait
           key={name + i}
           name={name}

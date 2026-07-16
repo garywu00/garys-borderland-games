@@ -97,11 +97,11 @@ export function ClubsPairingFlow({
     return (
       <Stack>
         <p className="label">{waitingLabel}</p>
-        <div style={{ border: "2px solid var(--line)", padding: 16, width: "100%" }}>
-          <p style={{ fontSize: 16, textAlign: "center", fontWeight: 600 }}>{waitingDirection}</p>
+        <div style={{ border: "2px solid var(--line)", padding: "26px 20px", width: "100%" }}>
+          <p style={{ fontSize: 19, textAlign: "center", fontWeight: 600, lineHeight: 1.5 }}>{waitingDirection}</p>
         </div>
-        <p style={{ fontSize: 15, textAlign: "center", color: "var(--muted)" }}>
-          Once you&apos;re there, Ajan will pair you up with another team.
+        <p style={{ fontSize: 15, lineHeight: 1.6, textAlign: "center", color: "var(--muted)", maxWidth: 300 }}>
+          Ajan is choosing who you&apos;ll face. Wait here.
         </p>
       </Stack>
     );
@@ -111,21 +111,25 @@ export function ClubsPairingFlow({
     <Stack>
       {isSolo ? (
         <>
-          <p className="label">Your own challenge</p>
-          <p style={{ fontSize: 15, textAlign: "center", maxWidth: 320 }}>
-            Ajan&apos;s given you a smaller bag of spinach — finish it as a pair. Show Ajan when you&apos;re done, or
-            give up if you can&apos;t finish it.
+          <p className="label">A trial of your own</p>
+          <p style={{ fontSize: 17, lineHeight: 1.7, textAlign: "center", maxWidth: 320 }}>
+            Ajan hands you a smaller bag — no one to share the weight with. Finish it as a pair, or give up and
+            carry the cost alone.
           </p>
         </>
       ) : (
         opponent && (
           <>
-            <p className="label">Paired with</p>
-            <PortraitPair names={opponent.name.split(" + ")} photos={opponentPhotos} size={64} />
-            <h2 style={{ fontWeight: 400, fontSize: 24, textAlign: "center" }}>{opponent.name}</h2>
-            <p style={{ fontSize: 15, textAlign: "center", maxWidth: 320 }}>
-              Work with {opponent.name} to finish the bag of spinach as a group of 4. Show Ajan when you&apos;re done
-              — or agree to give up together.
+            <p className="label">Your rivals</p>
+            <div className="pop-in">
+              <PortraitPair names={opponent.name.split(" + ")} photos={opponentPhotos} size={104} />
+            </div>
+            <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 26, textAlign: "center" }}>
+              {opponent.name}
+            </h2>
+            <p style={{ fontSize: 17, lineHeight: 1.7, textAlign: "center", maxWidth: 320 }}>
+              Empty the bag together — as a group of four. Show Ajan when it&apos;s done. Or agree to give up, and
+              share the loss.
             </p>
           </>
         )

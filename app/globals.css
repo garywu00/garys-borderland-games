@@ -100,6 +100,105 @@ input:focus-visible,
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Dramatic-moment effects — used sparingly, for reveal/result/congrats
+   screens only. Not for everyday UI. */
+/* ------------------------------------------------------------------ */
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes pulse-accent {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@keyframes flicker-in {
+  0% {
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.6;
+  }
+  20% {
+    opacity: 0.1;
+  }
+  35% {
+    opacity: 0.9;
+  }
+  50% {
+    opacity: 0.3;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.fade-up {
+  animation: fade-up 0.4s ease both;
+}
+
+.pop-in {
+  animation: pop-in 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.3) both;
+}
+
+.pulse-accent {
+  animation: pulse-accent 1s ease-in-out infinite;
+}
+
+.flicker-in {
+  animation: flicker-in 0.9s steps(8, end) both;
+}
+
+/* Full-bleed dark panel for high-stakes moments (reveals, eliminations,
+   congratulations) — bleeds edge-to-edge past Screen's own padding via a
+   negative margin matching it (see components using --screen-pad-x). */
+.dramatic-panel {
+  --screen-pad-x: 20px;
+  margin: 0 calc(var(--screen-pad-x) * -1);
+  padding: 32px var(--screen-pad-x);
+  background: #0a0a0a;
+  color: #f5f5f5;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  flex: 1;
+}
+
+.dramatic-panel .label {
+  color: #9a9a9a;
+}
+
 input[type="text"],
 input[type="number"] {
   font-family: inherit;

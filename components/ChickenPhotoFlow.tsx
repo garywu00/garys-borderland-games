@@ -69,11 +69,11 @@ export function ChickenPhotoFlow({
     return (
       <Stack>
         <p className="label">{waitingLabel}</p>
-        <div style={{ border: "2px solid var(--line)", padding: 16, width: "100%" }}>
-          <p style={{ fontSize: 16, textAlign: "center", fontWeight: 600 }}>{waitingDirection}</p>
+        <div style={{ border: "2px solid var(--line)", padding: "26px 20px", width: "100%" }}>
+          <p style={{ fontSize: 19, textAlign: "center", fontWeight: 600, lineHeight: 1.5 }}>{waitingDirection}</p>
         </div>
-        <p style={{ fontSize: 15, textAlign: "center", color: "var(--muted)" }}>
-          Once you&apos;re there, Michelle will check you in and give you your next challenge.
+        <p style={{ fontSize: 15, lineHeight: 1.6, textAlign: "center", color: "var(--muted)", maxWidth: 300 }}>
+          Michelle is watching for you. She won&apos;t say what comes next until you arrive.
         </p>
       </Stack>
     );
@@ -82,8 +82,8 @@ export function ChickenPhotoFlow({
   if (submission?.status === "pending") {
     return (
       <Stack>
-        <p className="label">Photo submitted</p>
-        <p style={{ fontSize: 15, textAlign: "center" }}>Waiting for Michelle to review it.</p>
+        <p className="label">Offering made</p>
+        <p style={{ fontSize: 17, lineHeight: 1.7, textAlign: "center" }}>Michelle is deciding your fate.</p>
       </Stack>
     );
   }
@@ -91,13 +91,13 @@ export function ChickenPhotoFlow({
   return (
     <Stack>
       {submission?.status === "rejected" && (
-        <p style={{ fontSize: 14, textAlign: "center", color: "var(--accent)" }}>
-          That photo didn&apos;t pass — take another.
+        <p style={{ fontSize: 15, lineHeight: 1.6, textAlign: "center", color: "var(--accent)" }}>
+          Not good enough. Michelle sends you back — try again.
         </p>
       )}
-      <p style={{ fontSize: 15, textAlign: "center", maxWidth: 320 }}>
-        Take a photo with a chicken with your entire pair&apos;s faces inside. The chicken can be any shape or form —
-        real, fake, or doodle. Present it back to Michelle for review.
+      <p style={{ fontSize: 17, lineHeight: 1.7, textAlign: "center", maxWidth: 320 }}>
+        Find a chicken. Any shape, any form — real, fake, or drawn — as long as both your faces are in frame with
+        it. Bring the proof to Michelle.
       </p>
       {!isActiveController ? (
         <p style={{ color: "var(--muted)", fontSize: 14 }}>Only your partner can submit this on this device.</p>

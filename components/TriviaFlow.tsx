@@ -100,10 +100,13 @@ export function TriviaFlow({
 
   if (!attempt) {
     return (
-      <div style={{ border: "2px solid var(--line)", padding: 20, marginBottom: 20, textAlign: "center" }}>
-        <h2 style={{ fontWeight: 400, fontSize: 24, marginBottom: 10 }}>Gary Trivia</h2>
-        <p style={{ fontSize: 15, marginBottom: 16 }}>
-          Answer correctly to keep your hearts. Once you start, you&apos;ll have 30 seconds.
+      <div className="fade-up" style={{ border: "2px solid var(--line)", padding: "26px 20px", marginBottom: 20, textAlign: "center" }}>
+        <p className="label">A price for passage</p>
+        <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 26, margin: "8px 0 12px" }}>
+          Gary Trivia
+        </h2>
+        <p style={{ fontSize: 17, lineHeight: 1.7, marginBottom: 18 }}>
+          Answer correctly to keep your hearts. Once you start, you&apos;ll have 30 seconds — no more.
         </p>
         {!isActiveController ? (
           <p style={{ color: "var(--muted)", fontSize: 14 }}>Only your partner can start this on this device.</p>
@@ -131,10 +134,13 @@ export function TriviaFlow({
   }
 
   if (!attempt.submitted_at) {
+    const urgent = secondsLeft <= 10;
     return (
-      <div style={{ border: "2px solid var(--line)", padding: 20, marginBottom: 20, textAlign: "center" }}>
-        <p className="label">{secondsLeft}s left</p>
-        <p style={{ fontSize: 18, fontWeight: 600, margin: "10px 0 16px" }}>{question?.prompt}</p>
+      <div style={{ border: "2px solid var(--line)", padding: "26px 20px", marginBottom: 20, textAlign: "center" }}>
+        <p className={`label ${urgent ? "pulse-accent" : ""}`} style={urgent ? { color: "var(--accent)" } : undefined}>
+          {secondsLeft}s left
+        </p>
+        <p style={{ fontSize: 19, fontWeight: 600, lineHeight: 1.5, margin: "12px 0 18px" }}>{question?.prompt}</p>
         <input
           type="text"
           value={answer}
@@ -170,8 +176,8 @@ export function TriviaFlow({
       : "Incorrect. Your pair loses 1 heart.";
 
   return (
-    <div style={{ border: "2px solid var(--line)", padding: 20, marginBottom: 20, textAlign: "center" }}>
-      <h2 style={{ fontWeight: 400, fontSize: 22, marginBottom: 10 }}>{resultText}</h2>
+    <div className="pop-in" style={{ border: "2px solid var(--line)", padding: "26px 20px", marginBottom: 20, textAlign: "center" }}>
+      <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 24, marginBottom: 14 }}>{resultText}</h2>
       <button className="btn" style={{ width: "100%" }} onClick={() => setDismissed(true)}>
         Continue
       </button>

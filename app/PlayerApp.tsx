@@ -8,6 +8,7 @@ import { PhotoCapture } from "@/components/PhotoCapture";
 import { TriviaFlow } from "@/components/TriviaFlow";
 import { ClubsPairingFlow } from "@/components/ClubsPairingFlow";
 import { ChickenPhotoFlow } from "@/components/ChickenPhotoFlow";
+import { CongratsScreen } from "@/components/CongratsScreen";
 import { CardDisplay, ProgressTrack } from "@/components/CardDisplay";
 import { CARD_META, NON_FINALIST_MESSAGE, resolveShareSteal, type CardCode, type ShareStealChoice } from "@/lib/game/rules";
 import {
@@ -39,10 +40,10 @@ type Matchup = {
 type ShareStealSubmission = { team_id: string; choice: ShareStealChoice };
 
 const SHARE_STEAL_RULES_COPY =
-  "You'll be randomly assigned a pair to play against. Without consulting the opposing pair, decide whether " +
-  "you'd like to share or steal a pot of 2 extra hearts. If both pairs select Share, each pair gains 1 heart. " +
-  "If only one pair selects Steal, that pair gains 2 hearts and the pair that selected Share gains nothing. If " +
-  "both pairs select Steal, both pairs lose 1 heart.";
+  "You'll face a pair chosen at random — watching you as closely as you watch them. Without a word between you, " +
+  "decide: Share, or Steal. Both Share, and each pair gains 1 heart. One Steals while the other Shares, and the " +
+  "thief walks away with 2 hearts — the generous pair gets nothing. Both Steal, and you both pay for it: 1 heart " +
+  "lost, each.";
 
 const LOCAL_KEY = "gbb_player_local";
 
@@ -101,7 +102,11 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   const [revealMatchupId, setRevealMatchupId] = useState<string | null>(null);
   const [revealDismissed, setRevealDismissed] = useState(true);
   const prevMatchupStatusRef = useRef<string | null>(null);
+  const [congrats, setCongrats] = useState<"round2pass" | "round3approved" | null>(null);
+  const prevTeamStatusRef = useRef<string | null>(null);
+  const prevHeartsRef = useRef<number | null>(null);
   const [opponentTeam, setOpponentTeam] = useState<Team | null>(null);
+  const [myTeamPhotos, setMyTeamPhotos] = useState<(string | null)[]>([]);
   const [collectedCards, setCollectedCards] = useState<CardCode[]>([]);
   const [finalistSlot, setFinalistSlot] = useState<number | null>(null);
   const [isWinner, setIsWinner] = useState(false);
@@ -179,6 +184,11 @@ export function PlayerApp({ eventId }: { eventId: string }) {
       .maybeSingle();
     setTeam(data ?? null);
   }, [supabase, teamId]);
+
+  useEffect(() => {
+    if (!teamId) return;
+    getTeamPortraits(teamId).then((p) => setMyTeamPhotos(p.map((x) => x.url)));
+  }, [teamId, teamMemberCount]);
 
   const refreshTeamMemberCount = useCallback(async () => {
     if (!teamId) return;
@@ -283,6 +293,22 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     }
     prevMatchupStatusRef.current = matchup.status;
   }, [matchup]);
+
+  // Same "only a live transition, not a page-load state" rule as the
+  // reveal screen above — a round2 pass is disambiguated from a mutual
+  // fail (which also advances to round3) by whether hearts went up.
+  useEffect(() => {
+    if (!team) return;
+    const prevStatus = prevTeamStatusRef.current;
+    const prevHearts = prevHeartsRef.current;
+    if (prevStatus === "round2" && team.status === "round3" && prevHearts !== null && team.hearts_cached > prevHearts) {
+      setCongrats("round2pass");
+    } else if (prevStatus === "round3" && team.status === "final_waiting") {
+      setCongrats("round3approved");
+    }
+    prevTeamStatusRef.current = team.status;
+    prevHeartsRef.current = team.hearts_cached;
+  }, [team]);
 
   const refreshShareStealSubmissions = useCallback(async () => {
     if (!matchup || matchup.status !== "resolved") return;
@@ -512,11 +538,32 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     );
   }
 
+  // ---------- Congratulations (Round 2 pass / Round 3 approval) ----------
+  if (congrats) {
+    return (
+      <Screen startsAt={eventStartsAt}>
+        <CongratsScreen
+          teamId={team.id}
+          teamName={team.name}
+          eyebrow={congrats === "round2pass" ? "The bag is empty" : "The chicken approves"}
+          title={congrats === "round2pass" ? "You survived the Clubs." : "Michelle lets you through."}
+          subtitle={
+            congrats === "round2pass"
+              ? "One trial down. The next one is already watching you."
+              : "Two down. One remains — and it's the one that decides everything."
+          }
+          onDismiss={() => setCongrats(null)}
+        />
+        <Toast msg={toast} />
+      </Screen>
+    );
+  }
+
   // ---------- In-game ----------
   const isActiveController = !team.active_controller_auth_id || team.active_controller_auth_id === myAuthId;
   return (
     <Screen startsAt={eventStartsAt}>
-      <PlayerHeader team={team} />
+      <PlayerHeader team={team} photos={myTeamPhotos} />
       {teamMemberCount < 3 && team.status === "round1" && !matchup && (
         <AddThirdPlayer teamId={teamId} players={players} pairedPlayerIds={pairedPlayerIds} notify={notify} />
       )}
@@ -556,51 +603,78 @@ export function PlayerApp({ eventId }: { eventId: string }) {
       )}
       {team.status === "final_waiting" && (
         <TriviaFlow teamId={teamId} roundNumber={3} isActiveController={isActiveController} notify={notify}>
-          <CheckpointWait label="Final checkpoint" personName="Gary" direction={CARD_META.diamond2.direction} />
+          <CheckpointWait
+            label="The last game"
+            personName="Gary"
+            direction="ONE DESTINATION REMAINS. IT HAS NO NAME YET. FIND GARY — HE ALONE KNOWS WHERE."
+          />
         </TriviaFlow>
       )}
       {team.status === "eliminated" && (
-        <Stack>
-          <p className="label">【 Out of Hearts 】</p>
-          <p style={{ fontSize: 20, textAlign: "center", maxWidth: 300 }}>
-            You&apos;re out. Head to Focal Point Brewery — meet the group there.
+        <div className="dramatic-panel">
+          <p className="label flicker-in">Your hearts are gone</p>
+          <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: 34, textAlign: "center", color: "#fff" }}>
+            The Borderland has no more use for you.
+          </h2>
+          <p className="fade-up" style={{ fontSize: 17, textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "#d8d8d8" }}>
+            Head to Focal Point Brewery — the others will find you there.
           </p>
-        </Stack>
+        </div>
       )}
       {team.status === "non_finalist" && (
-        <Stack>
-          <p className="label">【 Game Failed 】</p>
-          <p style={{ fontSize: 20, textAlign: "center", maxWidth: 300 }}>{NON_FINALIST_MESSAGE}</p>
-        </Stack>
+        <div className="dramatic-panel">
+          <p className="label flicker-in">Game over</p>
+          <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: 34, textAlign: "center", color: "#fff" }}>
+            Three pairs made it through. You weren&apos;t one of them.
+          </h2>
+          <p className="fade-up" style={{ fontSize: 17, textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "#d8d8d8" }}>
+            {NON_FINALIST_MESSAGE}
+          </p>
+        </div>
       )}
       {team.status === "finalist" && isWinner && (
-        <Stack>
-          <p className="label">【 Game Clear 】</p>
-          <h2 style={{ fontFamily: "var(--font-display)", fontSize: 44, fontWeight: 700, textAlign: "center" }}>
-            You won!
+        <div className="dramatic-panel">
+          <p className="label flicker-in">The Borderland has a winner</p>
+          <div className="pop-in">
+            <PortraitPair names={team.name.split(" + ")} photos={myTeamPhotos} size={92} />
+          </div>
+          <h2
+            className="fade-up"
+            style={{ fontFamily: "var(--font-display)", fontSize: 44, fontWeight: 700, textAlign: "center", color: "#fff" }}
+          >
+            You won.
           </h2>
-          <p style={{ fontSize: 16, textAlign: "center", maxWidth: 300 }}>
-            {team.name} takes Gary&apos;s 26th Borderland Games. Congratulations!
+          <p className="fade-up" style={{ fontSize: 17, textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "#d8d8d8" }}>
+            {team.name} claims Gary&apos;s 26th Borderland Games — right here, at Focal Point Brewery.
           </p>
-          <div style={{ fontSize: 24 }}>♥ {team.hearts_cached} remaining</div>
-          <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
+          <div style={{ fontSize: 24, color: "#fff" }}>♥ {team.hearts_cached} remaining</div>
+          <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
             {collectedCards.map((c) => (
               <CardDisplay key={c} code={c} width={90} />
             ))}
           </div>
-        </Stack>
+        </div>
       )}
       {team.status === "finalist" && !isWinner && (
-        <Stack>
-          <p className="label">You qualified!</p>
-          <h2 style={{ fontSize: 40, fontWeight: 400 }}>Finalist #{finalistSlot ?? "—"}</h2>
-          <div style={{ fontSize: 24 }}>♥ {team.hearts_cached} remaining</div>
-          <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
+        <div className="dramatic-panel">
+          <p className="label flicker-in">You made it through</p>
+          <div className="pop-in">
+            <PortraitPair names={team.name.split(" + ")} photos={myTeamPhotos} size={92} />
+          </div>
+          <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: 36, textAlign: "center", color: "#fff" }}>
+            Finalist #{finalistSlot ?? "—"}
+          </h2>
+          <p className="fade-up" style={{ fontSize: 17, textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "#d8d8d8" }}>
+            You&apos;re standing at Focal Point Brewery — one of only three pairs left. One final game decides
+            everything.
+          </p>
+          <div style={{ fontSize: 24, color: "#fff" }}>♥ {team.hearts_cached} remaining</div>
+          <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
             {collectedCards.map((c) => (
               <CardDisplay key={c} code={c} width={90} />
             ))}
           </div>
-        </Stack>
+        </div>
       )}
       <div style={{ marginTop: 24 }}>
         <ProgressTrack collected={collectedCards} finalist={team.status === "finalist"} />
@@ -664,12 +738,12 @@ function Toast({ msg }: { msg: string | null }) {
   );
 }
 
-function PlayerHeader({ team }: { team: Team }) {
+function PlayerHeader({ team, photos }: { team: Team; photos: (string | null)[] }) {
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   return (
     <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: 16, borderBottom: "1px solid rgba(10,10,10,0.15)", marginBottom: 20 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-        <PortraitPair names={team.name.split(" + ")} size={32} />
+        <PortraitPair names={team.name.split(" + ")} photos={photos} size={32} />
         <div>
           <div style={{ fontSize: 16 }}>{team.name}</div>
           <div style={{ fontSize: 14 }}>♥ {team.hearts_cached}</div>
@@ -967,14 +1041,17 @@ function PostPairingScreen({
 }) {
   return (
     <Stack>
-      <h2 style={{ fontWeight: 400, fontSize: 24 }}>You&apos;re paired up</h2>
-      <p style={{ fontSize: 15, textAlign: "center", maxWidth: 320 }}>
-        Get to a <strong>mystery final location</strong> before the other pairs — you&apos;ll find out where along
-        the way. Along the way you&apos;ll gain and lose <strong style={{ color: "var(--accent)" }}>hearts</strong> —
-        if you run out, you&apos;re out of the game. The first 3 pairs to finish all 3 checkpoints and arrive compete
-        in one final game.
+      <p className="label">The game begins</p>
+      <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 28, textAlign: "center" }}>
+        You are no longer alone.
+      </h2>
+      <p style={{ fontSize: 17, lineHeight: 1.7, textAlign: "center", maxWidth: 320 }}>
+        Somewhere ahead lies a destination with no name. Reach it before the others. Along the way, the Borderland
+        will take <strong style={{ color: "var(--accent)" }}>hearts</strong> from you — and give them back, if
+        you&apos;re clever. Run out, and you&apos;re finished. Only the first three pairs to clear every trial will
+        get a shot at the end.
       </p>
-      <p style={{ fontSize: 14, textAlign: "center", color: "var(--muted)", maxWidth: 320 }}>
+      <p style={{ fontSize: 14, lineHeight: 1.6, textAlign: "center", color: "var(--muted)", maxWidth: 320 }}>
         Only one of you needs to keep this screen open — your partner can just play along.
       </p>
       {pin ? (
@@ -1121,8 +1198,8 @@ function ShareStealReveal({
   const outcome = mySub && opponentSub ? resolveShareSteal(mySub.choice, opponentSub.choice) : null;
 
   return (
-    <Stack>
-      <p className="label">Results</p>
+    <div className="dramatic-panel">
+      <p className="label flicker-in">{revealed ? "The choices are in" : "Deciding your fate"}</p>
       <div style={{ display: "flex", gap: 20, width: "100%", justifyContent: "center" }}>
         <RevealColumn
           label="YOUR PAIR"
@@ -1140,17 +1217,28 @@ function ShareStealReveal({
         />
       </div>
       {!revealed && (
-        <div style={{ fontFamily: "var(--font-display)", fontSize: 72, fontWeight: 700 }}>{countdownNumber}…</div>
+        <div
+          className="pulse-accent"
+          style={{ fontFamily: "var(--font-display)", fontSize: 84, fontWeight: 700, color: "var(--accent)" }}
+        >
+          {countdownNumber}
+        </div>
       )}
       {revealed && outcome && (
-        <>
-          <p style={{ fontSize: 18, textAlign: "center", maxWidth: 300 }}>{outcome.copyForA}</p>
-          <button className="btn" style={{ width: "100%" }} onClick={onDismiss}>
+        <div className="pop-in" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 20, width: "100%" }}>
+          <p style={{ fontSize: 19, lineHeight: 1.6, textAlign: "center", maxWidth: 300, color: "#fff" }}>
+            {outcome.copyForA}
+          </p>
+          <button
+            className="btn"
+            style={{ width: "100%", background: "var(--accent)", borderColor: "var(--accent)" }}
+            onClick={onDismiss}
+          >
             Next game
           </button>
-        </>
+        </div>
       )}
-    </Stack>
+    </div>
   );
 }
 
@@ -1170,12 +1258,12 @@ function RevealColumn({
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, flex: 1 }}>
       <PortraitPair names={names} photos={photos} size={56} />
-      <p className="label" style={{ marginTop: 4 }}>
+      <p className="label" style={{ marginTop: 4, color: "#9a9a9a" }}>
         {label}
       </p>
       {choice !== undefined && delta !== undefined && (
-        <>
-          <div style={{ fontSize: 15, fontWeight: 600 }}>
+        <div className="pop-in" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+          <div style={{ fontSize: 16, fontWeight: 600, color: delta > 0 ? "#5ddb7f" : delta < 0 ? "var(--accent)" : "#fff" }}>
             ♥ {delta > 0 ? `+${delta}` : delta}
           </div>
           <div
@@ -1183,14 +1271,15 @@ function RevealColumn({
               fontSize: 12,
               fontWeight: 600,
               letterSpacing: "0.06em",
-              border: "1.6px solid var(--line)",
+              border: "1.6px solid #444",
+              color: "#fff",
               padding: "4px 10px",
               textTransform: "uppercase",
             }}
           >
             {choice}
           </div>
-        </>
+        </div>
       )}
     </div>
   );
@@ -1233,14 +1322,17 @@ function Round1Flow({
     content = (
       <Stack>
         <CardDisplay code="heart4" width={180} />
-        <p className="label">Waiting for Round 1 matchups to be assigned</p>
+        <p className="label">Somewhere, an opponent is being chosen</p>
       </Stack>
     );
   } else if (!rulesSeen) {
     content = (
       <Stack>
-        <p className="label">Share or steal — how to play</p>
-        <p style={{ fontSize: 15, textAlign: "center", maxWidth: 320 }}>{SHARE_STEAL_RULES_COPY}</p>
+        <p className="label">4 of hearts</p>
+        <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 26, textAlign: "center" }}>
+          Share or Steal.
+        </h2>
+        <p style={{ fontSize: 17, lineHeight: 1.7, textAlign: "center", maxWidth: 320 }}>{SHARE_STEAL_RULES_COPY}</p>
         <button className="btn" style={{ width: "100%" }} onClick={() => setRulesSeen(true)}>
           I&apos;m ready
         </button>
@@ -1254,8 +1346,12 @@ function Round1Flow({
         <p className="label">Your opponents</p>
         {opponentTeam && (
           <>
-            <PortraitPair names={opponentTeam.name.split(" + ")} photos={opponentPhotos} size={64} />
-            <h2 style={{ fontWeight: 400, fontSize: 28, textAlign: "center" }}>{opponentTeam.name}</h2>
+            <div className="pop-in">
+              <PortraitPair names={opponentTeam.name.split(" + ")} photos={opponentPhotos} size={104} />
+            </div>
+            <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 28, textAlign: "center" }}>
+              {opponentTeam.name}
+            </h2>
           </>
         )}
         {!myReady ? (
@@ -1357,7 +1453,7 @@ function RulesModal({ onClose }: { onClose: () => void }) {
             ✕
           </button>
         </div>
-        <p style={{ fontSize: 15 }}>{SHARE_STEAL_RULES_COPY}</p>
+        <p style={{ fontSize: 17, lineHeight: 1.7 }}>{SHARE_STEAL_RULES_COPY}</p>
       </div>
     </div>
   );
@@ -1367,11 +1463,13 @@ function CheckpointWait({ label, personName, direction }: { label: string; perso
   return (
     <Stack>
       <p className="label">{label}</p>
-      <div style={{ border: "2px solid var(--line)", padding: 16, width: "100%" }}>
-        <p style={{ fontSize: 16, textAlign: "center", fontWeight: 600 }}>{direction}</p>
+      <div style={{ border: "2px solid var(--line)", padding: "26px 20px", width: "100%" }}>
+        <p style={{ fontSize: 19, textAlign: "center", fontWeight: 600, lineHeight: 1.5, letterSpacing: "0.01em" }}>
+          {direction}
+        </p>
       </div>
-      <p style={{ fontSize: 15, textAlign: "center", color: "var(--muted)" }}>
-        Once you&apos;re there, {personName} will explain the game in person, then record your result here.
+      <p style={{ fontSize: 15, textAlign: "center", color: "var(--muted)", lineHeight: 1.6, maxWidth: 300 }}>
+        {personName} is waiting there. Only they can let you continue.
       </p>
     </Stack>
   );
