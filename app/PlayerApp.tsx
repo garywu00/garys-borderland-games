@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Portrait, PortraitPair } from "@/components/Portrait";
 import { CardDisplay, ProgressTrack } from "@/components/CardDisplay";
-import { CARD_META, type CardCode } from "@/lib/game/rules";
+import { CARD_META, NON_FINALIST_MESSAGE, type CardCode } from "@/lib/game/rules";
 import {
   claimPlayer,
   recoverWithPin,
@@ -465,10 +465,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
       {team.status === "non_finalist" && (
         <Stack>
           <p className="label">【 Game Failed 】</p>
-          <p style={{ fontSize: 20, textAlign: "center", maxWidth: 300 }}>
-            The first 3 pairs have qualified. Head to the grass area facing the Pepsi-Cola sign by Rainbow
-            Playground.
-          </p>
+          <p style={{ fontSize: 20, textAlign: "center", maxWidth: 300 }}>{NON_FINALIST_MESSAGE}</p>
         </Stack>
       )}
       {team.status === "finalist" && isWinner && (

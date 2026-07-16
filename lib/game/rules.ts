@@ -42,15 +42,14 @@ export const CARD_META = {
   },
   diamond2: {
     label: "2 of Diamonds",
-    direction: "HEAD TO THE GRASS AREA FACING THE PEPSI-COLA SIGN BY RAINBOW PLAYGROUND. FIND GARY.",
+    direction: "HEAD TO FOCAL POINT BREWERY. FIND GARY.",
     svg: "/cards/diamond2.svg",
   },
 } as const;
 
 export type CardCode = keyof typeof CARD_META;
 
-export const NON_FINALIST_MESSAGE =
-  "The first 3 pairs have qualified. Head to the grass area facing the Pepsi-Cola sign by Rainbow Playground.";
+export const NON_FINALIST_MESSAGE = "The first 3 pairs have qualified. Head to Focal Point Brewery.";
 
 export interface FinalistCandidate {
   teamId: string;
