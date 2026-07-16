@@ -9,7 +9,7 @@ import {
   adjustHeartsManual,
   confirmArrival,
   verifyWinner,
-  createRandomMatchups,
+  matchUpWaitingTeams,
   resetGameState,
   updatePlayerName,
   deleteTeam,
@@ -153,7 +153,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
         <HeartsView
           teams={teams.filter((t) => t.status === "round1")}
           onCreateMatchups={async () => {
-            const result = await createRandomMatchups();
+            const result = await matchUpWaitingTeams();
             if (!result.ok) {
               notify("Could not create matchups.");
             } else if (result.leftoverTeam) {
@@ -284,8 +284,12 @@ function HeartsView({
   return (
     <div>
       <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, textAlign: "center", marginBottom: 16 }}>4 of Hearts — Round 1</h2>
+      <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 12 }}>
+        Pairs are matched automatically, first-come-first-served, the moment a second pair is ready. Use the button
+        below only to catch stragglers this missed.
+      </p>
       <button className="btn btn-outline" style={{ width: "100%", marginBottom: 20 }} onClick={onCreateMatchups}>
-        Create random Round 1 matchups
+        Match up any waiting pairs
       </button>
       <p className="label">Pairs at this round ({teams.length})</p>
       {teams.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>No pairs currently in Round 1.</p>}

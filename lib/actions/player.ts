@@ -120,6 +120,35 @@ function generatePin(): string {
   return String(Math.floor(1000 + Math.random() * 9000));
 }
 
+/**
+ * First-come-first-served Round 1 matchmaking: when a new pair forms, match
+ * them against whichever existing pair has been waiting longest. If nobody's
+ * waiting, this pair becomes the next one in line. A DB trigger rejects the
+ * insert if the "waiting" team got matched by a concurrent request in the
+ * meantime — that's fine, this pair just stays waiting for the next one.
+ */
+async function tryAutoMatchRound1(admin: ReturnType<typeof createAdminClient>, eventId: string, teamId: string) {
+  const { data: openMatchups } = await admin.from("matchups").select("team_a_id, team_b_id").neq("status", "resolved");
+  const busyTeamIds = new Set<string>();
+  openMatchups?.forEach((m) => {
+    busyTeamIds.add(m.team_a_id);
+    busyTeamIds.add(m.team_b_id);
+  });
+
+  const { data: waiting } = await admin
+    .from("teams")
+    .select("id")
+    .eq("event_id", eventId)
+    .eq("status", "round1")
+    .neq("id", teamId)
+    .order("created_at", { ascending: true });
+
+  const opponent = (waiting ?? []).find((t) => !busyTeamIds.has(t.id));
+  if (!opponent) return;
+
+  await admin.from("matchups").insert({ event_id: eventId, team_a_id: opponent.id, team_b_id: teamId });
+}
+
 export async function acceptInvite(inviteId: string) {
   const authId = await requireAuthId();
   const admin = createAdminClient();
@@ -186,6 +215,8 @@ export async function acceptInvite(inviteId: string) {
     .update({ status: "cancelled", resolved_at: new Date().toISOString() })
     .eq("status", "pending")
     .in("from_player_id", [invite.from_player_id, invite.to_player_id]);
+
+  await tryAutoMatchRound1(admin, invite.event_id, team.id);
 
   return { ok: true as const, teamId: team.id, pin };
 }

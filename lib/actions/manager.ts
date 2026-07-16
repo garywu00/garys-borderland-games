@@ -236,7 +236,15 @@ export async function closeGame(eventId: string) {
   return { ok: true as const };
 }
 
-export async function createRandomMatchups() {
+/**
+ * Round 1 pairs are matched automatically, first-come-first-served, the
+ * moment a second pair forms (see tryAutoMatchRound1 in player actions).
+ * This is the manual backup for whatever that misses — e.g. pairs that
+ * formed before this went live, or a race where two pairs landed in the
+ * queue at the exact same instant. Kept first-come-first-served too, by
+ * team creation time, rather than random, to match the live behavior.
+ */
+export async function matchUpWaitingTeams() {
   const manager = await requireManager();
   const admin = createAdminClient();
 
@@ -250,14 +258,17 @@ export async function createRandomMatchups() {
     busyTeamIds.add(m.team_b_id);
   });
 
-  const { data: teams } = await admin.from("teams").select("id, event_id").eq("status", "round1");
-  const available = (teams ?? []).filter((t) => !busyTeamIds.has(t.id));
-  const shuffled = [...available].sort(() => Math.random() - 0.5);
+  const { data: teams } = await admin
+    .from("teams")
+    .select("id, event_id")
+    .eq("status", "round1")
+    .order("created_at", { ascending: true });
+  const waiting = (teams ?? []).filter((t) => !busyTeamIds.has(t.id));
 
   const created: string[] = [];
-  for (let i = 0; i + 1 < shuffled.length; i += 2) {
-    const teamA = shuffled[i]!;
-    const teamB = shuffled[i + 1]!;
+  for (let i = 0; i + 1 < waiting.length; i += 2) {
+    const teamA = waiting[i]!;
+    const teamB = waiting[i + 1]!;
     const { data: matchup, error } = await admin
       .from("matchups")
       .insert({ event_id: teamA.event_id, team_a_id: teamA.id, team_b_id: teamB.id })
@@ -266,8 +277,8 @@ export async function createRandomMatchups() {
     if (!error && matchup) created.push(matchup.id);
   }
 
-  await logAction(manager.id, manager.role, "Created random Round 1 matchups", null, null, { count: created.length });
-  return { ok: true as const, created: created.length, leftoverTeam: shuffled.length % 2 === 1 };
+  await logAction(manager.id, manager.role, "Matched up waiting Round 1 pairs", null, null, { count: created.length });
+  return { ok: true as const, created: created.length, leftoverTeam: waiting.length % 2 === 1 };
 }
 
 /**
