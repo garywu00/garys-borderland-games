@@ -31,6 +31,12 @@ type Matchup = {
   deadline_at: string | null;
 };
 
+const SHARE_STEAL_RULES_COPY =
+  "You'll be randomly assigned a pair to play against. Without consulting the opposing pair, decide whether " +
+  "you'd like to share or steal a pot of 2 extra hearts. If both pairs select Share, each pair gains 1 heart. " +
+  "If only one pair selects Steal, that pair gains 2 hearts and the pair that selected Share gains nothing. If " +
+  "both pairs select Steal, both pairs lose 1 heart.";
+
 const LOCAL_KEY = "gbb_player_local";
 
 function loadLocal(): { playerId: string | null; teamId: string | null } {
@@ -45,6 +51,28 @@ function loadLocal(): { playerId: string | null; teamId: string | null } {
 function saveLocal(v: { playerId: string | null; teamId: string | null }) {
   try {
     localStorage.setItem(LOCAL_KEY, JSON.stringify(v));
+  } catch {
+    // ignore
+  }
+}
+
+// Tracked separately from LOCAL_KEY (rather than folded into its shape) so
+// the existing saveLocal call sites don't need to thread an extra field
+// through every call. Keyed by teamId so recovering onto a different team
+// later correctly shows the post-pairing screen again.
+const POST_PAIRING_SEEN_KEY = "gbb_post_pairing_seen_team_id";
+
+function loadPostPairingSeenTeamId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return localStorage.getItem(POST_PAIRING_SEEN_KEY);
+  } catch {
+    return null;
+  }
+}
+function savePostPairingSeenTeamId(teamId: string) {
+  try {
+    localStorage.setItem(POST_PAIRING_SEEN_KEY, teamId);
   } catch {
     // ignore
   }
@@ -74,6 +102,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   const [toast, setToastMsg] = useState<string | null>(null);
   const [eventStartsAt, setEventStartsAt] = useState<string | null>(null);
   const [myAuthId, setMyAuthId] = useState<string | null>(null);
+  const [postPairingSeenTeamId, setPostPairingSeenTeamId] = useState<string | null>(null);
 
   function notify(msg: string) {
     setToastMsg(msg);
@@ -93,6 +122,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
       const local = loadLocal();
       setPlayerId(local.playerId);
       setTeamId(local.teamId);
+      setPostPairingSeenTeamId(loadPostPairingSeenTeamId());
       setReadyState(true);
     })();
   }, [supabase]);
@@ -410,33 +440,19 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     );
   }
 
-  // ---------- Rules + PIN (shown once right after pairing) ----------
-  if (pinShown) {
+  // ---------- Post-pairing rules (shown once per team, on every device) ----------
+  if (postPairingSeenTeamId !== teamId) {
     return (
       <Screen startsAt={eventStartsAt}>
-        <Stack>
-          <h2 style={{ fontWeight: 400, fontSize: 24 }}>Rules & Recovery</h2>
-          <p style={{ fontSize: 15, textAlign: "center", maxWidth: 320 }}>
-            You and your partner start with <strong style={{ color: "var(--accent)" }}>7 hearts</strong>. Only one of
-            you needs to stay logged in — your partner can take over on another device with this PIN if your phone
-            dies.
-          </p>
-          <div className="label">Your recovery PIN</div>
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 40, letterSpacing: "0.3em" }}>{pinShown}</div>
-          <button
-            className="btn btn-outline"
-            style={{ width: "100%" }}
-            onClick={() => {
-              navigator.clipboard?.writeText(pinShown);
-              notify("PIN copied.");
-            }}
-          >
-            Copy PIN
-          </button>
-          <button className="btn" style={{ width: "100%" }} onClick={() => setPinShown(null)}>
-            Start Game
-          </button>
-        </Stack>
+        <PostPairingScreen
+          pin={pinShown}
+          onContinue={() => {
+            savePostPairingSeenTeamId(teamId);
+            setPostPairingSeenTeamId(teamId);
+            setPinShown(null);
+          }}
+          notify={notify}
+        />
         <Toast msg={toast} />
       </Screen>
     );
@@ -932,6 +948,57 @@ function PairingLobby({
   );
 }
 
+function PostPairingScreen({
+  pin,
+  onContinue,
+  notify,
+}: {
+  pin: string | null;
+  onContinue: () => void;
+  notify: (msg: string) => void;
+}) {
+  return (
+    <Stack>
+      <h2 style={{ fontWeight: 400, fontSize: 24 }}>You&apos;re paired up</h2>
+      <p style={{ fontSize: 15, textAlign: "center", maxWidth: 320 }}>
+        Get to <strong>Focal Point Brewery</strong> before the other pairs. Along the way you&apos;ll gain and lose{" "}
+        <strong style={{ color: "var(--accent)" }}>hearts</strong> — if you run out, you&apos;re out of the game. The
+        first 3 pairs to finish all 3 checkpoints and arrive compete in one final game.
+      </p>
+      <p style={{ fontSize: 14, textAlign: "center", color: "var(--muted)", maxWidth: 320 }}>
+        Only one of you needs to keep this screen open — your partner can just play along.
+      </p>
+      {pin ? (
+        <>
+          <div className="label">Your recovery PIN</div>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 40, letterSpacing: "0.3em" }}>{pin}</div>
+          <p style={{ fontSize: 13, textAlign: "center", color: "var(--muted)", maxWidth: 320 }}>
+            If your phone dies, your partner can use this PIN to take over on another device.
+          </p>
+          <button
+            className="btn btn-outline"
+            style={{ width: "100%" }}
+            onClick={() => {
+              navigator.clipboard?.writeText(pin);
+              notify("PIN copied.");
+            }}
+          >
+            Copy PIN
+          </button>
+        </>
+      ) : (
+        <p style={{ fontSize: 13, textAlign: "center", color: "var(--muted)", maxWidth: 320 }}>
+          Your partner was shown a 4-digit recovery PIN when they accepted — ask them to save it. You only need it
+          if a phone dies.
+        </p>
+      )}
+      <button className="btn" style={{ width: "100%" }} onClick={onContinue}>
+        Start Game
+      </button>
+    </Stack>
+  );
+}
+
 function AddThirdPlayer({
   teamId,
   players,
@@ -1022,39 +1089,31 @@ function Round1Flow({
 }) {
   const [submitting, setSubmitting] = useState(false);
   const [rulesSeen, setRulesSeen] = useState(false);
+  const [rulesModalOpen, setRulesModalOpen] = useState(false);
+
+  let content: React.ReactNode;
 
   if (!matchup) {
-    return (
+    content = (
       <Stack>
         <CardDisplay code="heart4" width={180} />
         <p className="label">Waiting for Round 1 matchups to be assigned</p>
       </Stack>
     );
-  }
-
-  if (!rulesSeen) {
-    return (
+  } else if (!rulesSeen) {
+    content = (
       <Stack>
         <p className="label">Share or steal — how to play</p>
-        <p style={{ fontSize: 15, textAlign: "center", maxWidth: 320 }}>
-          You&apos;ll be randomly assigned a pair to play against. Without consulting the opposing pair, decide
-          whether you&apos;d like to share or steal a pot of 2 extra hearts. If both pairs select Share, each pair
-          gains 1 heart. If only one pair selects Steal, that pair gains 2 hearts and the pair that selected Share
-          gains nothing. If both pairs select Steal, both pairs lose 1 heart.
-        </p>
+        <p style={{ fontSize: 15, textAlign: "center", maxWidth: 320 }}>{SHARE_STEAL_RULES_COPY}</p>
         <button className="btn" style={{ width: "100%" }} onClick={() => setRulesSeen(true)}>
           I&apos;m ready
         </button>
       </Stack>
     );
-  }
-
-  const isTeamA = matchup.team_a_id === teamId;
-  const myReady = isTeamA ? matchup.team_a_ready : matchup.team_b_ready;
-  const bothReady = matchup.team_a_ready && matchup.team_b_ready;
-
-  if (matchup.status === "pending_ready") {
-    return (
+  } else if (matchup.status === "pending_ready") {
+    const isTeamA = matchup.team_a_id === teamId;
+    const myReady = isTeamA ? matchup.team_a_ready : matchup.team_b_ready;
+    content = (
       <Stack>
         <p className="label">Your opponents</p>
         {opponentTeam && <h2 style={{ fontWeight: 400, fontSize: 28, textAlign: "center" }}>{opponentTeam.name}</h2>}
@@ -1067,12 +1126,10 @@ function Round1Flow({
         )}
       </Stack>
     );
-  }
-
-  if (matchup.status === "active") {
+  } else if (matchup.status === "active") {
     const mySubmitted = myChoice !== null;
     const locked = mySubmitted || !isActiveController;
-    return (
+    content = (
       <Stack>
         <p className="label">Select your action</p>
         {!isActiveController && (
@@ -1122,14 +1179,46 @@ function Round1Flow({
         </button>
       </Stack>
     );
+  } else {
+    // resolved
+    content = (
+      <Stack>
+        <p className="label">Result</p>
+        <p style={{ fontSize: 18, textAlign: "center" }}>The match has been resolved — check your heart total above.</p>
+      </Stack>
+    );
   }
 
-  // resolved
   return (
-    <Stack>
-      <p className="label">Result</p>
-      <p style={{ fontSize: 18, textAlign: "center" }}>The match has been resolved — check your heart total above.</p>
-    </Stack>
+    <>
+      {content}
+      {rulesSeen && (
+        <button
+          className="btn-outline"
+          style={{ width: "100%", marginTop: 12, fontSize: 13, padding: "10px 16px", minHeight: "auto" }}
+          onClick={() => setRulesModalOpen(true)}
+        >
+          View Rules
+        </button>
+      )}
+      {rulesModalOpen && <RulesModal onClose={() => setRulesModalOpen(false)} />}
+    </>
+  );
+}
+
+function RulesModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.55)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 50 }}>
+      <div style={{ background: "var(--bg)", width: "100%", maxHeight: "85vh", overflowY: "auto", padding: 22 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <h2 style={{ fontWeight: 400, fontSize: 22 }}>Share or Steal — Rules</h2>
+          <button className="btn-outline" style={{ width: 36, height: 36, border: "1.6px solid var(--line)" }} onClick={onClose}>
+            ✕
+          </button>
+        </div>
+        <p style={{ fontSize: 15 }}>{SHARE_STEAL_RULES_COPY}</p>
+      </div>
+    </div>
   );
 }
 
