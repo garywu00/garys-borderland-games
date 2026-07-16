@@ -18,7 +18,7 @@ import {
   setReady,
   submitShareSteal,
 } from "@/lib/actions/player";
-import { uploadSelfie } from "@/lib/actions/photos";
+import { uploadSelfie, getTeamPortraits } from "@/lib/actions/photos";
 
 type Player = { id: string; display_name: string; claim_status: string; selfie_path: string | null };
 type Team = { id: string; name: string; hearts_cached: number; status: string; active_controller_auth_id?: string | null };
@@ -1036,6 +1036,15 @@ function Round1Flow({
   const [submitting, setSubmitting] = useState(false);
   const [rulesSeen, setRulesSeen] = useState(false);
   const [rulesModalOpen, setRulesModalOpen] = useState(false);
+  const [opponentPhotos, setOpponentPhotos] = useState<(string | null)[]>([]);
+
+  useEffect(() => {
+    if (!opponentTeam) {
+      setOpponentPhotos([]);
+      return;
+    }
+    getTeamPortraits(opponentTeam.id).then((portraits) => setOpponentPhotos(portraits.map((p) => p.url)));
+  }, [opponentTeam]);
 
   let content: React.ReactNode;
 
@@ -1062,7 +1071,12 @@ function Round1Flow({
     content = (
       <Stack>
         <p className="label">Your opponents</p>
-        {opponentTeam && <h2 style={{ fontWeight: 400, fontSize: 28, textAlign: "center" }}>{opponentTeam.name}</h2>}
+        {opponentTeam && (
+          <>
+            <PortraitPair names={opponentTeam.name.split(" + ")} photos={opponentPhotos} size={64} />
+            <h2 style={{ fontWeight: 400, fontSize: 28, textAlign: "center" }}>{opponentTeam.name}</h2>
+          </>
+        )}
         {!myReady ? (
           <button className="btn" style={{ width: "100%" }} onClick={() => setReady(matchup.id, teamId)}>
             I&apos;m ready
