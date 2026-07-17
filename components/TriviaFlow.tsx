@@ -19,13 +19,11 @@ type Attempt = {
 export function TriviaFlow({
   teamId,
   roundNumber,
-  isActiveController,
   notify,
   children,
 }: {
   teamId: string;
   roundNumber: 1 | 2 | 3;
-  isActiveController: boolean;
   notify: (msg: string) => void;
   children: React.ReactNode;
 }) {
@@ -108,27 +106,23 @@ export function TriviaFlow({
         <p style={{ fontSize: 17, lineHeight: 1.7, marginBottom: 18 }}>
           Answer correctly to keep your hearts. Once you start, you&apos;ll have 30 seconds — no more.
         </p>
-        {!isActiveController ? (
-          <p style={{ color: "var(--muted)", fontSize: 14 }}>Only your partner can start this on this device.</p>
-        ) : (
-          <button
-            className="btn"
-            style={{ width: "100%" }}
-            disabled={starting}
-            onClick={async () => {
-              setStarting(true);
-              try {
-                const result = await startTrivia(teamId, roundNumber);
-                if (result.ok) setAttempt(result.attempt);
-                else notify("Only your partner can start this on this device.");
-              } finally {
-                setStarting(false);
-              }
-            }}
-          >
-            {starting ? "Starting…" : "I'm ready"}
-          </button>
-        )}
+        <button
+          className="btn"
+          style={{ width: "100%" }}
+          disabled={starting}
+          onClick={async () => {
+            setStarting(true);
+            try {
+              const result = await startTrivia(teamId, roundNumber);
+              if (result.ok) setAttempt(result.attempt);
+              else notify("Could not start — try again.");
+            } finally {
+              setStarting(false);
+            }
+          }}
+        >
+          {starting ? "Starting…" : "I'm ready"}
+        </button>
       </div>
     );
   }
@@ -145,19 +139,19 @@ export function TriviaFlow({
           type="text"
           value={answer}
           onChange={(e) => setAnswer(e.target.value)}
-          disabled={!isActiveController || submitting}
+          disabled={submitting}
           placeholder="Your answer…"
           style={{ marginBottom: 12 }}
         />
         <button
           className="btn"
           style={{ width: "100%" }}
-          disabled={!isActiveController || submitting || !answer.trim()}
+          disabled={submitting || !answer.trim()}
           onClick={async () => {
             setSubmitting(true);
             try {
               const result = await submitTriviaAnswer(teamId, roundNumber, answer);
-              if (!result.ok) notify("Only your partner can submit on this device.");
+              if (!result.ok) notify("Already submitted.");
             } finally {
               setSubmitting(false);
             }

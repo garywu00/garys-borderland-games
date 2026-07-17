@@ -1,7 +1,7 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/server";
-import { requireActiveController } from "@/lib/actions/session";
+import { requireTeamMember } from "@/lib/actions/session";
 import { applyHeartDelta } from "@/lib/actions/hearts";
 
 /**
@@ -11,8 +11,8 @@ import { applyHeartDelta } from "@/lib/actions/hearts";
  * Round 1 Share/Steal matchup resolves once both submissions land.
  */
 export async function voteClubsFail(teamId: string) {
-  const controller = await requireActiveController(teamId);
-  if (!controller.ok) return controller;
+  const member = await requireTeamMember(teamId);
+  if (!member.ok) return member;
 
   const admin = createAdminClient();
   const { data: pairing } = await admin

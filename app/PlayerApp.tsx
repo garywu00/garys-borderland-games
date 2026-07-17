@@ -13,7 +13,6 @@ import { CardDisplay, ProgressTrack } from "@/components/CardDisplay";
 import { CARD_META, NON_FINALIST_MESSAGE, resolveShareSteal, type CardCode, type ShareStealChoice } from "@/lib/game/rules";
 import {
   claimPlayer,
-  recoverWithPin,
   sendInvite,
   cancelInvite,
   declineInvite,
@@ -110,14 +109,12 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   const [collectedCards, setCollectedCards] = useState<CardCode[]>([]);
   const [finalistSlot, setFinalistSlot] = useState<number | null>(null);
   const [isWinner, setIsWinner] = useState(false);
-  const [uiStep, setUiStep] = useState<"landing" | "selfie" | "select-name" | "confirm" | "recovery">("landing");
+  const [uiStep, setUiStep] = useState<"landing" | "selfie" | "select-name" | "confirm">("landing");
   const [selfie, setSelfie] = useState<string | null>(null);
-  const [pinShown, setPinShown] = useState<string | null>(null);
   const [claimPinShown, setClaimPinShown] = useState<string | null>(null);
   const [myChoice, setMyChoice] = useState<"share" | "steal" | null>(null);
   const [toast, setToastMsg] = useState<string | null>(null);
   const [eventStartsAt, setEventStartsAt] = useState<string | null>(null);
-  const [myAuthId, setMyAuthId] = useState<string | null>(null);
   const [postPairingSeenTeamId, setPostPairingSeenTeamId] = useState<string | null>(null);
 
   function notify(msg: string) {
@@ -129,12 +126,9 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   useEffect(() => {
     (async () => {
       const { data } = await supabase.auth.getSession();
-      let session = data.session;
-      if (!session) {
-        const { data: signInData } = await supabase.auth.signInAnonymously();
-        session = signInData.session;
+      if (!data.session) {
+        await supabase.auth.signInAnonymously();
       }
-      setMyAuthId(session?.user.id ?? null);
       const local = loadLocal();
       setPlayerId(local.playerId);
       setTeamId(local.teamId);
@@ -429,9 +423,18 @@ export function PlayerApp({ eventId }: { eventId: string }) {
               setMe(p);
               setUiStep("confirm");
             }}
-            onSelectClaimed={(p) => {
+            onSelectClaimed={async (p) => {
               setMe(p);
-              setUiStep("recovery");
+              setPlayerId(p.id);
+              const { data: membership } = await supabase
+                .from("team_members")
+                .select("team_id")
+                .eq("player_id", p.id)
+                .maybeSingle();
+              const recoveredTeamId = membership?.team_id ?? null;
+              setTeamId(recoveredTeamId);
+              saveLocal({ playerId: p.id, teamId: recoveredTeamId });
+              notify("Welcome back.");
             }}
           />
         )}
@@ -460,18 +463,6 @@ export function PlayerApp({ eventId }: { eventId: string }) {
             </button>
           </Stack>
         )}
-        {uiStep === "recovery" && me && (
-          <RecoveryStep
-            playerName={me.display_name}
-            onRecovered={(recoveredTeamId) => {
-              setPlayerId(me.id);
-              setTeamId(recoveredTeamId);
-              saveLocal({ playerId: me.id, teamId: recoveredTeamId });
-              notify("This pair has continued on this device.");
-            }}
-            onBack={() => setUiStep("select-name")}
-          />
-        )}
         <Toast msg={toast} />
       </Screen>
     );
@@ -490,10 +481,9 @@ export function PlayerApp({ eventId }: { eventId: string }) {
           players={players}
           pairedPlayerIds={pairedPlayerIds}
           invites={invites}
-          onPaired={(newTeamId, pin) => {
+          onPaired={(newTeamId) => {
             setTeamId(newTeamId);
             saveLocal({ playerId, teamId: newTeamId });
-            setPinShown(pin);
           }}
           notify={notify}
         />
@@ -502,18 +492,15 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     );
   }
 
-  // ---------- Post-pairing rules (shown once per team, on every device) ----------
+  // ---------- Post-pairing rules (shown once per team, identical on every device) ----------
   if (postPairingSeenTeamId !== teamId) {
     return (
       <Screen startsAt={eventStartsAt}>
         <PostPairingScreen
-          pin={pinShown}
           onContinue={() => {
             savePostPairingSeenTeamId(teamId);
             setPostPairingSeenTeamId(teamId);
-            setPinShown(null);
           }}
-          notify={notify}
         />
         <Toast msg={toast} />
       </Screen>
@@ -560,7 +547,6 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   }
 
   // ---------- In-game ----------
-  const isActiveController = !team.active_controller_auth_id || team.active_controller_auth_id === myAuthId;
   return (
     <Screen startsAt={eventStartsAt}>
       <PlayerHeader team={team} photos={myTeamPhotos} />
@@ -576,14 +562,12 @@ export function PlayerApp({ eventId }: { eventId: string }) {
           myChoice={myChoice}
           setMyChoice={setMyChoice}
           notify={notify}
-          isActiveController={isActiveController}
         />
       )}
       {team.status === "round2" && (
-        <TriviaFlow teamId={teamId} roundNumber={1} isActiveController={isActiveController} notify={notify}>
+        <TriviaFlow teamId={teamId} roundNumber={1} notify={notify}>
           <ClubsPairingFlow
             teamId={teamId}
-            isActiveController={isActiveController}
             notify={notify}
             waitingLabel="8 of Clubs"
             waitingDirection={CARD_META.heart4.direction}
@@ -591,30 +575,20 @@ export function PlayerApp({ eventId }: { eventId: string }) {
         </TriviaFlow>
       )}
       {team.status === "round3" && (
-        <TriviaFlow teamId={teamId} roundNumber={2} isActiveController={isActiveController} notify={notify}>
-          <ChickenPhotoFlow
-            teamId={teamId}
-            isActiveController={isActiveController}
-            notify={notify}
-            waitingLabel="2 of Diamonds"
-            waitingDirection={CARD_META.club8.direction}
-          />
+        <TriviaFlow teamId={teamId} roundNumber={2} notify={notify}>
+          <ChickenPhotoFlow teamId={teamId} waitingLabel="2 of Diamonds" waitingDirection={CARD_META.club8.direction} />
         </TriviaFlow>
       )}
       {team.status === "final_waiting" && (
-        <TriviaFlow teamId={teamId} roundNumber={3} isActiveController={isActiveController} notify={notify}>
-          <CheckpointWait
-            label="The last game"
-            personName="Gary"
-            direction="ONE DESTINATION REMAINS. IT HAS NO NAME YET. FIND GARY — HE ALONE KNOWS WHERE."
-          />
+        <TriviaFlow teamId={teamId} roundNumber={3} notify={notify}>
+          <CheckpointWait label="The last checkpoint" personName="Gary" direction="ONE LAST STOP. FIND GARY." />
         </TriviaFlow>
       )}
       {team.status === "eliminated" && (
         <div className="dramatic-panel">
           <p className="label flicker-in">Your hearts are gone</p>
           <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: 34, textAlign: "center" }}>
-            The Borderland has no more use for you.
+            You&apos;re out of hearts — you&apos;re eliminated.
           </h2>
           <p className="fade-up" style={{ fontSize: 17, textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "var(--muted)" }}>
             Head to Focal Point Brewery — the others will find you there.
@@ -863,61 +837,6 @@ function NameSelectStep({
   );
 }
 
-function RecoveryStep({
-  playerName,
-  onRecovered,
-  onBack,
-}: {
-  playerName: string;
-  onRecovered: (teamId: string) => void;
-  onBack: () => void;
-}) {
-  const [pin, setPin] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const supabase = createClient();
-
-  async function submit() {
-    // find the team this player belongs to
-    const { data: membership } = await supabase
-      .from("team_members")
-      .select("team_id, players!inner(display_name)")
-      .eq("players.display_name", playerName)
-      .maybeSingle();
-    if (!membership) {
-      setError("Could not find that player's team.");
-      return;
-    }
-    const result = await recoverWithPin(membership.team_id, pin);
-    if (result.ok) {
-      onRecovered(membership.team_id);
-    } else {
-      setError("Recovery PIN incorrect. Try again.");
-    }
-  }
-
-  return (
-    <Stack>
-      <h2 style={{ fontWeight: 400, fontSize: 24 }}>Recover {playerName}</h2>
-      <p className="label">Enter 4-digit recovery PIN</p>
-      <input
-        type="text"
-        inputMode="numeric"
-        maxLength={4}
-        value={pin}
-        onChange={(e) => setPin(e.target.value)}
-        style={{ textAlign: "center", letterSpacing: "0.5em", fontSize: 24, width: 160 }}
-      />
-      {error && <p style={{ color: "var(--accent)", fontSize: 14 }}>{error}</p>}
-      <button className="btn" style={{ width: "100%" }} onClick={submit}>
-        Continue
-      </button>
-      <button className="btn btn-outline" style={{ width: "100%" }} onClick={onBack}>
-        Back
-      </button>
-    </Stack>
-  );
-}
-
 function PairingLobby({
   me,
   players,
@@ -930,7 +849,7 @@ function PairingLobby({
   players: Player[];
   pairedPlayerIds: Set<string>;
   invites: Invite[];
-  onPaired: (teamId: string, pin: string) => void;
+  onPaired: (teamId: string) => void;
   notify: (msg: string) => void;
 }) {
   const incoming = invites.filter((i) => i.to_player_id === me.id);
@@ -980,7 +899,7 @@ function PairingLobby({
                 setPendingId(inv.id);
                 try {
                   const result = await acceptInvite(inv.id);
-                  if (result.ok) onPaired(result.teamId, result.pin);
+                  if (result.ok) onPaired(result.teamId);
                   else notify("That invite is no longer available.");
                 } finally {
                   setPendingId(null);
@@ -1027,15 +946,7 @@ function PairingLobby({
   );
 }
 
-function PostPairingScreen({
-  pin,
-  onContinue,
-  notify,
-}: {
-  pin: string | null;
-  onContinue: () => void;
-  notify: (msg: string) => void;
-}) {
+function PostPairingScreen({ onContinue }: { onContinue: () => void }) {
   return (
     <Stack>
       <p className="label">The game begins</p>
@@ -1043,38 +954,14 @@ function PostPairingScreen({
         You are no longer alone.
       </h2>
       <p style={{ fontSize: 17, lineHeight: 1.7, textAlign: "center", maxWidth: 320 }}>
-        Somewhere ahead lies a destination with no name. Reach it before the others. Along the way, the Borderland
-        will take <strong style={{ color: "var(--accent)" }}>hearts</strong> from you — and give them back, if
-        you&apos;re clever. Run out, and you&apos;re finished. Only the first three pairs to clear every trial will
-        get a shot at the end.
+        You start with <strong style={{ color: "var(--accent)" }}>5 hearts</strong>. Find the final destination
+        before the other pairs get there — along the way you&apos;ll gain and lose hearts. Run out, and
+        you&apos;re eliminated. The first three pairs to clear all three checkpoints and arrive qualify for one
+        final game.
       </p>
       <p style={{ fontSize: 14, lineHeight: 1.6, textAlign: "center", color: "var(--muted)", maxWidth: 320 }}>
-        Only one of you needs to keep this screen open — your partner can just play along.
+        Either of you can play from your own phone — no need to share one.
       </p>
-      {pin ? (
-        <>
-          <div className="label">Your recovery PIN</div>
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 40, letterSpacing: "0.3em" }}>{pin}</div>
-          <p style={{ fontSize: 13, textAlign: "center", color: "var(--muted)", maxWidth: 320 }}>
-            If your phone dies, your partner can use this PIN to take over on another device.
-          </p>
-          <button
-            className="btn btn-outline"
-            style={{ width: "100%" }}
-            onClick={() => {
-              navigator.clipboard?.writeText(pin);
-              notify("PIN copied.");
-            }}
-          >
-            Copy PIN
-          </button>
-        </>
-      ) : (
-        <p style={{ fontSize: 13, textAlign: "center", color: "var(--muted)", maxWidth: 320 }}>
-          Your partner was shown a 4-digit recovery PIN when they accepted — ask them to save it. You only need it
-          if a phone dies.
-        </p>
-      )}
       <button className="btn" style={{ width: "100%" }} onClick={onContinue}>
         Start Game
       </button>
@@ -1282,7 +1169,6 @@ function Round1Flow({
   myChoice,
   setMyChoice,
   notify,
-  isActiveController,
 }: {
   teamId: string;
   team: Team;
@@ -1291,7 +1177,6 @@ function Round1Flow({
   myChoice: "share" | "steal" | null;
   setMyChoice: (c: "share" | "steal" | null) => void;
   notify: (msg: string) => void;
-  isActiveController: boolean;
 }) {
   const [submitting, setSubmitting] = useState(false);
   const [rulesSeen, setRulesSeen] = useState(false);
@@ -1355,15 +1240,10 @@ function Round1Flow({
     );
   } else if (matchup.status === "active") {
     const mySubmitted = myChoice !== null;
-    const locked = mySubmitted || !isActiveController;
+    const locked = mySubmitted;
     content = (
       <Stack>
         <p className="label">Select your action</p>
-        {!isActiveController && (
-          <p style={{ color: "var(--muted)", fontSize: 14, textAlign: "center" }}>
-            Only your partner can submit on this device — ask them to.
-          </p>
-        )}
         <div style={{ display: "flex", gap: 16, width: "100%" }}>
           {(["share", "steal"] as const).map((choice) => (
             <button
@@ -1394,9 +1274,7 @@ function Round1Flow({
             setSubmitting(true);
             try {
               const result = await submitShareSteal(matchup.id, teamId, myChoice);
-              if (!result.ok) {
-                notify(result.reason === "not_active_controller" ? "Only your partner can submit on this device." : "Already submitted.");
-              }
+              if (!result.ok) notify("Already submitted.");
             } finally {
               setSubmitting(false);
             }

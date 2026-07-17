@@ -1,7 +1,6 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/server";
-import { requireActiveController, requireManager } from "@/lib/actions/session";
 
 function dataUrlToBuffer(dataUrl: string): Buffer {
   const base64 = dataUrl.split(",")[1] ?? dataUrl;
@@ -41,30 +40,4 @@ export async function getTeamPortraits(teamId: string): Promise<{ playerId: stri
     }),
   );
   return results;
-}
-
-export async function submitChallengePhoto(teamId: string, challengeCode: "round3_chicken_photo", dataUrl: string) {
-  const controller = await requireActiveController(teamId);
-  if (!controller.ok) return controller;
-
-  const admin = createAdminClient();
-  const path = `${teamId}/${challengeCode}/${Date.now()}.jpg`;
-  const { error: uploadErr } = await admin.storage
-    .from("challenge_photos")
-    .upload(path, dataUrlToBuffer(dataUrl), { contentType: "image/jpeg" });
-  if (uploadErr) return { ok: false as const, reason: "upload_failed" as const };
-
-  const { error } = await admin
-    .from("challenge_submissions")
-    .insert({ team_id: teamId, challenge_code: challengeCode, storage_path: path });
-  if (error) return { ok: false as const, reason: "insert_failed" as const };
-
-  return { ok: true as const };
-}
-
-export async function getChallengePhotoUrl(storagePath: string) {
-  await requireManager();
-  const admin = createAdminClient();
-  const { data } = await admin.storage.from("challenge_photos").createSignedUrl(storagePath, 300);
-  return data?.signedUrl ?? null;
 }

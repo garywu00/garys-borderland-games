@@ -35,17 +35,20 @@ export async function requireAuthId(): Promise<string> {
 }
 
 /**
- * Gates an action to the one device a team designated as its active
- * controller (acceptInvite/recoverWithPin set this) — every other device
- * holding a valid teamId can read but must not be able to submit on the
- * team's behalf.
+ * Gates an action to someone actually on the team — either partner's
+ * device, not just whichever one happened to accept the pairing invite.
+ * Both partners play from their own phones, so there's no single
+ * "controller" device to restrict actions to.
  */
-export async function requireActiveController(teamId: string) {
+export async function requireTeamMember(teamId: string) {
   const authId = await requireAuthId();
   const admin = createAdminClient();
-  const { data: team } = await admin.from("teams").select("active_controller_auth_id").eq("id", teamId).maybeSingle();
-  if (!team || team.active_controller_auth_id !== authId) {
-    return { ok: false as const, reason: "not_active_controller" as const };
-  }
+  const { data } = await admin
+    .from("team_members")
+    .select("player_id, players!inner(claimed_by_auth_id)")
+    .eq("team_id", teamId)
+    .eq("players.claimed_by_auth_id", authId)
+    .maybeSingle();
+  if (!data) return { ok: false as const, reason: "not_team_member" as const };
   return { ok: true as const, authId };
 }

@@ -7,7 +7,7 @@ import {
   pairClubsTeams,
   resolveClubsPass,
   markArrivedRound3,
-  reviewChallengePhoto,
+  passRound3Photo,
   adjustHeartsManual,
   confirmArrival,
   verifyWinner,
@@ -22,7 +22,6 @@ import {
 } from "@/lib/actions/manager";
 import { overrideTriviaResult } from "@/lib/actions/trivia";
 import { getTriviaQuestion } from "@/lib/game/trivia";
-import { getChallengePhotoUrl } from "@/lib/actions/photos";
 
 type Team = { id: string; name: string; hearts_cached: number; status: string; event_id: string };
 type Finalist = { team_id: string; slot: number };
@@ -43,7 +42,6 @@ type TriviaAttempt = {
 type Tab = "overview" | "trivia" | "hearts" | "clubs" | "diamonds" | "spades";
 type ClubsPairing = { id: string; team_a_id: string; team_b_id: string | null; status: string };
 type CheckpointArrival = { team_id: string; checkpoint: string };
-type ChallengeSubmission = { id: string; team_id: string; challenge_code: string; storage_path: string; status: string; submitted_at: string };
 type Matchup = { id: string; team_a_id: string; team_b_id: string; status: string };
 
 const ROUND_TABS: { id: Tab; label: string }[] = [
@@ -64,7 +62,6 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
   const [clubsPairings, setClubsPairings] = useState<ClubsPairing[]>([]);
   const [matchups, setMatchups] = useState<Matchup[]>([]);
   const [diamondsArrivals, setDiamondsArrivals] = useState<CheckpointArrival[]>([]);
-  const [challengeSubmissions, setChallengeSubmissions] = useState<ChallengeSubmission[]>([]);
   const [toast, setToastMsg] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
 
@@ -100,11 +97,6 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
     setClubsPairings(cp ?? []);
     const { data: da } = await supabase.from("checkpoint_arrivals").select("team_id, checkpoint").eq("checkpoint", "diamonds");
     setDiamondsArrivals(da ?? []);
-    const { data: cs } = await supabase
-      .from("challenge_submissions")
-      .select("id, team_id, challenge_code, storage_path, status, submitted_at")
-      .order("submitted_at", { ascending: false });
-    setChallengeSubmissions(cs ?? []);
     const { data: m } = await supabase.from("matchups").select("id, team_a_id, team_b_id, status").neq("status", "resolved");
     setMatchups(m ?? []);
   }, [supabase]);
@@ -121,7 +113,6 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
       .on("postgres_changes", { event: "*", schema: "public", table: "team_trivia_attempts" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "clubs_pairings" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "checkpoint_arrivals" }, refresh)
-      .on("postgres_changes", { event: "*", schema: "public", table: "challenge_submissions" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "matchups" }, refresh)
       .subscribe();
     return () => {
@@ -258,14 +249,13 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
         <MichelleReviewView
           teams={teams.filter((t) => t.status === "round3")}
           arrivals={diamondsArrivals}
-          submissions={challengeSubmissions}
           onMarkArrived={async (id) => {
             const result = await markArrivedRound3(id);
             notify(result.ok ? "Marked arrived." : "Could not mark arrived.");
           }}
-          onReview={async (submissionId, decision) => {
-            const result = await reviewChallengePhoto(submissionId, decision);
-            notify(result.ok ? (decision === "approved" ? "Approved — advanced to final checkpoint." : "Rejected — team can retake.") : "Could not review.");
+          onPass={async (id) => {
+            const result = await passRound3Photo(id);
+            notify(result.ok ? "Passed — advanced to final checkpoint." : "Could not mark pass.");
           }}
           onAdjust={onAdjust}
         />
@@ -598,21 +588,19 @@ function PairTeamsModal({
 function MichelleReviewView({
   teams,
   arrivals,
-  submissions,
   onMarkArrived,
-  onReview,
+  onPass,
   onAdjust,
 }: {
   teams: Team[];
   arrivals: CheckpointArrival[];
-  submissions: ChallengeSubmission[];
   onMarkArrived: (id: string) => void;
-  onReview: (submissionId: string, decision: "approved" | "rejected") => void;
+  onPass: (id: string) => void;
   onAdjust: (id: string, delta: number) => void;
 }) {
   const arrivedTeamIds = new Set(arrivals.map((a) => a.team_id));
   const notArrived = teams.filter((t) => !arrivedTeamIds.has(t.id));
-  const pending = submissions.filter((s) => s.status === "pending" && teams.some((t) => t.id === s.team_id));
+  const arrived = teams.filter((t) => arrivedTeamIds.has(t.id));
 
   return (
     <div>
@@ -645,38 +633,22 @@ function MichelleReviewView({
       ))}
 
       <p className="label" style={{ marginTop: 20 }}>
-        Chicken photos to review ({pending.length})
+        Waiting on a chicken photo ({arrived.length})
       </p>
-      {pending.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>Nothing waiting on review.</p>}
-      {pending.map((s) => {
-        const team = teams.find((t) => t.id === s.team_id);
-        return (
-          <div key={s.id} style={{ border: "1.6px solid var(--line)", padding: 14, marginBottom: 10 }}>
-            <div style={{ fontSize: 16, marginBottom: 8 }}>{team?.name ?? "Unknown team"}</div>
-            <SubmissionPhoto storagePath={s.storage_path} />
-            <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
-              <button className="btn" style={{ flex: 1 }} onClick={() => onReview(s.id, "approved")}>
-                Approve
-              </button>
-              <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => onReview(s.id, "rejected")}>
-                Reject
-              </button>
-            </div>
-          </div>
-        );
-      })}
+      {arrived.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>No arrived teams yet.</p>}
+      {arrived.map((t) => (
+        <TeamRow
+          key={t.id}
+          team={t}
+          right={
+            <button className="btn" style={{ width: "auto", minHeight: "auto", padding: "10px 16px", fontSize: 14 }} onClick={() => onPass(t.id)}>
+              Pass — seen it
+            </button>
+          }
+        />
+      ))}
     </div>
   );
-}
-
-function SubmissionPhoto({ storagePath }: { storagePath: string }) {
-  const [url, setUrl] = useState<string | null>(null);
-  useEffect(() => {
-    getChallengePhotoUrl(storagePath).then(setUrl);
-  }, [storagePath]);
-  if (!url) return <p style={{ color: "var(--muted)", fontSize: 13 }}>Loading photo…</p>;
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img src={url} alt="Submitted chicken photo" style={{ width: "100%", maxWidth: 300, border: "1.6px solid var(--line)" }} />;
 }
 
 function SpadesView({

@@ -1,9 +1,8 @@
 "use server";
 
-import bcrypt from "bcryptjs";
 import { createAdminClient } from "@/lib/supabase/server";
 import { resolveShareSteal, type ShareStealChoice, type CardCode } from "@/lib/game/rules";
-import { requireAuthId, requireActiveController } from "@/lib/actions/session";
+import { requireAuthId, requireTeamMember } from "@/lib/actions/session";
 import { applyHeartDelta } from "@/lib/actions/hearts";
 
 async function activeEventId(admin: ReturnType<typeof createAdminClient>): Promise<string> {
@@ -44,41 +43,6 @@ export async function claimPlayer(playerId: string) {
     .eq("id", playerId);
 
   return { ok: true as const, recoveryPin: pin };
-}
-
-export async function recoverWithPin(teamId: string, pin: string) {
-  const authId = await requireAuthId();
-  const admin = createAdminClient();
-
-  const { data: team, error } = await admin
-    .from("teams")
-    .select("id, recovery_pin_hash")
-    .eq("id", teamId)
-    .single();
-  if (error || !team) return { ok: false as const, reason: "not_found" as const };
-
-  const matches = await bcrypt.compare(pin, team.recovery_pin_hash);
-  if (!matches) return { ok: false as const, reason: "incorrect_pin" as const };
-
-  const { data: session, error: sessionErr } = await admin
-    .from("device_sessions")
-    .insert({ team_id: teamId, auth_id: authId, is_active_controller: true })
-    .select("id")
-    .single();
-  if (sessionErr) throw sessionErr;
-
-  await admin
-    .from("device_sessions")
-    .update({ is_active_controller: false })
-    .eq("team_id", teamId)
-    .neq("id", session.id);
-
-  await admin
-    .from("teams")
-    .update({ active_controller_auth_id: authId, active_controller_device_id: session.id })
-    .eq("id", teamId);
-
-  return { ok: true as const };
 }
 
 export async function sendInvite(fromPlayerId: string, toPlayerId: string) {
@@ -176,15 +140,11 @@ export async function acceptInvite(inviteId: string) {
     .eq("id", invite.to_player_id)
     .single();
 
-  const pin = generatePin();
-  const pinHash = await bcrypt.hash(pin, 10);
-
   const { data: team, error: teamErr } = await admin
     .from("teams")
     .insert({
       event_id: invite.event_id,
       name: `${fromPlayer?.display_name ?? "Player"} + ${toPlayer?.display_name ?? "Player"}`,
-      recovery_pin_hash: pinHash,
       active_controller_auth_id: authId,
     })
     .select("id")
@@ -222,7 +182,7 @@ export async function acceptInvite(inviteId: string) {
 
   await tryAutoMatchRound1(admin, invite.event_id, team.id);
 
-  return { ok: true as const, teamId: team.id, pin };
+  return { ok: true as const, teamId: team.id };
 }
 
 export async function inviteThirdPlayer(teamId: string, playerId: string) {
@@ -285,8 +245,8 @@ export async function submitShareSteal(
   choice: ShareStealChoice,
   isTimeoutDefault = false,
 ) {
-  const controller = await requireActiveController(teamId);
-  if (!controller.ok) return controller;
+  const member = await requireTeamMember(teamId);
+  if (!member.ok) return member;
 
   const admin = createAdminClient();
 

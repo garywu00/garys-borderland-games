@@ -1,7 +1,7 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/server";
-import { requireActiveController, requireManager } from "@/lib/actions/session";
+import { requireTeamMember, requireManager } from "@/lib/actions/session";
 import { applyHeartDelta, reverseHeartDelta } from "@/lib/actions/hearts";
 import { logAction } from "@/lib/actions/manager";
 import { TRIVIA_QUESTIONS, checkTriviaAnswer, TRIVIA_TIME_LIMIT_MS } from "@/lib/game/trivia";
@@ -16,14 +16,15 @@ type RoundNumber = 1 | 2 | 3;
  * a client clock and survives a page reload.
  */
 export async function startTrivia(teamId: string, roundNumber: RoundNumber) {
-  const controller = await requireActiveController(teamId);
-  if (!controller.ok) return controller;
+  const member = await requireTeamMember(teamId);
+  if (!member.ok) return member;
 
   const admin = createAdminClient();
+  const select = "id, round_number, question_id, submitted_answer, is_correct, started_at, submitted_at, timed_out";
 
   const { data: existing } = await admin
     .from("team_trivia_attempts")
-    .select("id, round_number, question_id, submitted_answer, is_correct, started_at, submitted_at, timed_out")
+    .select(select)
     .eq("team_id", teamId)
     .eq("round_number", roundNumber)
     .maybeSingle();
@@ -38,16 +39,27 @@ export async function startTrivia(teamId: string, roundNumber: RoundNumber) {
   const { data: attempt, error } = await admin
     .from("team_trivia_attempts")
     .insert({ team_id: teamId, round_number: roundNumber, question_id: question.id })
-    .select("id, round_number, question_id, submitted_answer, is_correct, started_at, submitted_at, timed_out")
+    .select(select)
     .single();
-  if (error || !attempt) return { ok: false as const, reason: "conflict" as const };
+  if (error || !attempt) {
+    // Both partners can tap "I'm ready" at once — the loser of the
+    // unique(team_id, round_number) race just reads back the winner's row.
+    const { data: raceWinner } = await admin
+      .from("team_trivia_attempts")
+      .select(select)
+      .eq("team_id", teamId)
+      .eq("round_number", roundNumber)
+      .maybeSingle();
+    if (raceWinner) return { ok: true as const, attempt: raceWinner };
+    return { ok: false as const, reason: "conflict" as const };
+  }
 
   return { ok: true as const, attempt };
 }
 
 export async function submitTriviaAnswer(teamId: string, roundNumber: RoundNumber, rawAnswer: string) {
-  const controller = await requireActiveController(teamId);
-  if (!controller.ok) return controller;
+  const member = await requireTeamMember(teamId);
+  if (!member.ok) return member;
 
   const admin = createAdminClient();
   const { data: attempt } = await admin
@@ -66,7 +78,7 @@ export async function submitTriviaAnswer(teamId: string, roundNumber: RoundNumbe
 
   let heartTransactionId: string | null = null;
   if (!isCorrect) {
-    const result = await applyHeartDelta(teamId, -1, `round${roundNumber}`, attempt.id, controller.authId);
+    const result = await applyHeartDelta(teamId, -1, `round${roundNumber}`, attempt.id, member.authId);
     heartTransactionId = result.transactionId;
   }
 

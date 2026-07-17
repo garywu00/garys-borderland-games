@@ -11,13 +11,11 @@ type TeamInfo = { id: string; name: string; hearts_cached: number };
 
 export function ClubsPairingFlow({
   teamId,
-  isActiveController,
   notify,
   waitingLabel,
   waitingDirection,
 }: {
   teamId: string;
-  isActiveController: boolean;
   notify: (msg: string) => void;
   waitingLabel: string;
   waitingDirection: string;
@@ -111,16 +109,16 @@ export function ClubsPairingFlow({
     <Stack>
       {isSolo ? (
         <>
-          <p className="label">A trial of your own</p>
+          <p className="label">Your own bag</p>
           <p style={{ fontSize: 17, lineHeight: 1.7, textAlign: "center", maxWidth: 320 }}>
-            Ajan hands you a smaller bag — no one to share the weight with. Finish it as a pair, or give up and
-            carry the cost alone.
+            Ajan&apos;s given you a smaller bag of spinach — no other team this time. Finish it as a pair, or give
+            up.
           </p>
         </>
       ) : (
         opponent && (
           <>
-            <p className="label">Your rivals</p>
+            <p className="label">Your opponents</p>
             <div className="pop-in">
               <PortraitPair names={opponent.name.split(" + ")} photos={opponentPhotos} size={104} />
             </div>
@@ -128,8 +126,8 @@ export function ClubsPairingFlow({
               {opponent.name}
             </h2>
             <p style={{ fontSize: 17, lineHeight: 1.7, textAlign: "center", maxWidth: 320 }}>
-              Empty the bag together — as a group of four. Show Ajan when it&apos;s done. Or agree to give up, and
-              share the loss.
+              Finish the bag of spinach together, as a group of four. Show Ajan when you&apos;re done — or agree to
+              give up together.
             </p>
           </>
         )
@@ -142,12 +140,12 @@ export function ClubsPairingFlow({
         <button
           className="btn btn-outline"
           style={{ width: "100%" }}
-          disabled={!isActiveController || voting}
+          disabled={voting}
           onClick={async () => {
             setVoting(true);
             try {
               const result = await voteClubsFail(teamId);
-              if (!result.ok) notify("Only your partner can vote on this device.");
+              if (!result.ok) notify("Could not submit — try again.");
             } finally {
               setVoting(false);
             }
@@ -155,11 +153,6 @@ export function ClubsPairingFlow({
         >
           {voting ? "…" : "We give up"}
         </button>
-      )}
-      {!isActiveController && (
-        <p style={{ color: "var(--muted)", fontSize: 13, textAlign: "center" }}>
-          Only your partner can vote to give up on this device.
-        </p>
       )}
     </Stack>
   );
