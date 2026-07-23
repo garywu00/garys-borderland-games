@@ -21,7 +21,7 @@ import {
   setReady,
   submitShareSteal,
 } from "@/lib/actions/player";
-import { uploadSelfie, getTeamPortraits } from "@/lib/actions/photos";
+import { uploadSelfie, getTeamPortraits, getPlayerPhotoUrls } from "@/lib/actions/photos";
 
 type Player = { id: string; display_name: string; claim_status: string; selfie_path: string | null };
 type Team = { id: string; name: string; hearts_cached: number; status: string; active_controller_auth_id?: string | null };
@@ -472,12 +472,9 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   if (!teamId || !team) {
     return (
       <Screen startsAt={eventStartsAt}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, paddingBottom: 16, borderBottom: "1px solid rgba(10,10,10,0.15)", marginBottom: 20 }}>
-          <Portrait name={me.display_name} photoUrl={selfie} size={40} />
-          <div style={{ fontSize: 16 }}>{me.display_name}</div>
-        </div>
         <PairingLobby
           me={me}
+          selfie={selfie}
           players={players}
           pairedPlayerIds={pairedPlayerIds}
           invites={invites}
@@ -839,6 +836,7 @@ function NameSelectStep({
 
 function PairingLobby({
   me,
+  selfie,
   players,
   pairedPlayerIds,
   invites,
@@ -846,6 +844,7 @@ function PairingLobby({
   notify,
 }: {
   me: Player;
+  selfie: string | null;
   players: Player[];
   pairedPlayerIds: Set<string>;
   invites: Invite[];
@@ -854,66 +853,76 @@ function PairingLobby({
 }) {
   const incoming = invites.filter((i) => i.to_player_id === me.id);
   const outgoing = invites.find((i) => i.from_player_id === me.id);
+  const [pending, setPending] = useState(false);
+
+  // An incoming invite takes over the whole screen — someone's waiting on
+  // your decision, so it takes priority over browsing the roster or even
+  // your own outgoing invite.
+  if (incoming.length > 0) {
+    const invite = incoming[0]!;
+    const fromPlayer = players.find((p) => p.id === invite.from_player_id);
+    if (fromPlayer) {
+      return (
+        <IncomingInviteScreen
+          fromPlayer={fromPlayer}
+          pending={pending}
+          onAccept={async () => {
+            setPending(true);
+            try {
+              const result = await acceptInvite(invite.id);
+              if (result.ok) onPaired(result.teamId);
+              else notify("That invite is no longer available.");
+            } finally {
+              setPending(false);
+            }
+          }}
+          onDecline={async () => {
+            setPending(true);
+            try {
+              await declineInvite(invite.id);
+            } finally {
+              setPending(false);
+            }
+          }}
+        />
+      );
+    }
+  }
+
+  if (outgoing) {
+    const toPlayer = players.find((p) => p.id === outgoing.to_player_id);
+    if (toPlayer) {
+      return (
+        <OutgoingInviteScreen
+          toPlayer={toPlayer}
+          pending={pending}
+          onCancel={async () => {
+            setPending(true);
+            try {
+              await cancelInvite(outgoing.id);
+            } finally {
+              setPending(false);
+            }
+          }}
+        />
+      );
+    }
+  }
+
   // Only people who've actually signed in (claimed their identity) and
   // aren't already on a team show up as invitable — not the whole roster.
   const available = players.filter(
     (p) => p.claim_status === "claimed" && p.id !== me.id && !pairedPlayerIds.has(p.id),
   );
-  const [pendingId, setPendingId] = useState<string | null>(null);
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, paddingBottom: 16, borderBottom: "1px solid rgba(10,10,10,0.15)", marginBottom: 20 }}>
+        <Portrait name={me.display_name} photoUrl={selfie} size={40} />
+        <div style={{ fontSize: 16 }}>{me.display_name}</div>
+      </div>
       <h2 style={{ fontWeight: 400, fontSize: 24, textAlign: "center", marginBottom: 12 }}>Pair up</h2>
       <p className="label" style={{ textAlign: "left", marginTop: 16 }}>
-        Invites
-      </p>
-      {incoming.length === 0 && <p style={{ color: "var(--muted)", fontSize: 14, padding: "8px 0" }}>No pending invites.</p>}
-      {incoming.map((inv) => {
-        const fromPlayer = players.find((p) => p.id === inv.from_player_id);
-        if (!fromPlayer) return null;
-        return (
-          <div key={inv.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 0" }}>
-            <Portrait name={fromPlayer.display_name} size={36} />
-            <div style={{ flex: 1 }}>{fromPlayer.display_name}</div>
-            <button
-              className="btn btn-outline"
-              style={{ width: 40, minHeight: 40, padding: 0 }}
-              disabled={pendingId === inv.id}
-              onClick={async () => {
-                setPendingId(inv.id);
-                try {
-                  await declineInvite(inv.id);
-                } finally {
-                  setPendingId(null);
-                }
-              }}
-              aria-label={`Decline invite from ${fromPlayer.display_name}`}
-            >
-              ✕
-            </button>
-            <button
-              className="btn"
-              style={{ width: 40, minHeight: 40, padding: 0 }}
-              disabled={pendingId === inv.id}
-              onClick={async () => {
-                setPendingId(inv.id);
-                try {
-                  const result = await acceptInvite(inv.id);
-                  if (result.ok) onPaired(result.teamId);
-                  else notify("That invite is no longer available.");
-                } finally {
-                  setPendingId(null);
-                }
-              }}
-              aria-label={`Accept invite from ${fromPlayer.display_name}`}
-            >
-              ✓
-            </button>
-          </div>
-        );
-      })}
-
-      <p className="label" style={{ textAlign: "left", marginTop: 20 }}>
         Available
       </p>
       {available.map((p) => (
@@ -923,25 +932,101 @@ function PairingLobby({
           <button
             className="btn"
             style={{ width: "auto", minHeight: "auto", padding: "10px 18px", fontSize: 15 }}
-            disabled={(!!outgoing && outgoing.to_player_id !== p.id) || pendingId === p.id}
+            disabled={pending}
             onClick={async () => {
-              setPendingId(p.id);
+              setPending(true);
               try {
-                if (outgoing?.to_player_id === p.id) {
-                  await cancelInvite(outgoing.id);
-                } else {
-                  const result = await sendInvite(me.id, p.id);
-                  if (!result.ok) notify("You already have an outgoing invite.");
-                }
+                const result = await sendInvite(me.id, p.id);
+                if (!result.ok) notify("You already have an outgoing invite.");
               } finally {
-                setPendingId(null);
+                setPending(false);
               }
             }}
           >
-            {outgoing?.to_player_id === p.id ? "Cancel" : "Invite"}
+            Invite
           </button>
         </div>
       ))}
+    </div>
+  );
+}
+
+function IncomingInviteScreen({
+  fromPlayer,
+  onAccept,
+  onDecline,
+  pending,
+}: {
+  fromPlayer: Player;
+  onAccept: () => void;
+  onDecline: () => void;
+  pending: boolean;
+}) {
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    getPlayerPhotoUrls([fromPlayer.id]).then((results) => setPhotoUrl(results[0]?.url ?? null));
+  }, [fromPlayer.id]);
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+      <div
+        className="fade-up"
+        style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24 }}
+      >
+        <p className="label">You received an invite from</p>
+        <div className="pop-in">
+          <Portrait name={fromPlayer.display_name} photoUrl={photoUrl} size={96} />
+        </div>
+        <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 32, textAlign: "center" }}>
+          {fromPlayer.display_name}
+        </h2>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <button className="btn" style={{ width: "100%" }} disabled={pending} onClick={onAccept}>
+          Accept invite
+        </button>
+        <button className="btn btn-outline" style={{ width: "100%" }} disabled={pending} onClick={onDecline}>
+          Reject invite
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function OutgoingInviteScreen({
+  toPlayer,
+  onCancel,
+  pending,
+}: {
+  toPlayer: Player;
+  onCancel: () => void;
+  pending: boolean;
+}) {
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    getPlayerPhotoUrls([toPlayer.id]).then((results) => setPhotoUrl(results[0]?.url ?? null));
+  }, [toPlayer.id]);
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+      <div
+        className="fade-up"
+        style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24 }}
+      >
+        <p className="label">Invite sent to</p>
+        <div className="pulse-accent">
+          <Portrait name={toPlayer.display_name} photoUrl={photoUrl} size={96} />
+        </div>
+        <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 32, textAlign: "center" }}>
+          {toPlayer.display_name}
+        </h2>
+        <p style={{ fontSize: 15, color: "var(--muted)", textAlign: "center" }}>Waiting for confirmation…</p>
+      </div>
+      <button className="btn btn-outline" style={{ width: "100%" }} disabled={pending} onClick={onCancel}>
+        Cancel invite
+      </button>
     </div>
   );
 }

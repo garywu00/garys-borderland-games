@@ -21,23 +21,25 @@ export async function uploadSelfie(playerId: string, dataUrl: string) {
 }
 
 /**
- * Signed URLs for a team's members' selfies — used to show an opponent
- * (not just your own) pair's photos, matching the app's existing
- * fully-public team name/hearts visibility model.
+ * Signed URLs for an arbitrary list of players' selfies — used to show
+ * opponent/inviter photos, matching the app's existing fully-public team
+ * name/hearts visibility model.
  */
-export async function getTeamPortraits(teamId: string): Promise<{ playerId: string; url: string | null }[]> {
-  const admin = createAdminClient();
-  const { data: members } = await admin.from("team_members").select("player_id").eq("team_id", teamId);
-  const playerIds = (members ?? []).map((m) => m.player_id);
+export async function getPlayerPhotoUrls(playerIds: string[]): Promise<{ playerId: string; url: string | null }[]> {
   if (!playerIds.length) return [];
-
+  const admin = createAdminClient();
   const { data: players } = await admin.from("players").select("id, selfie_path").in("id", playerIds);
-  const results = await Promise.all(
+  return Promise.all(
     (players ?? []).map(async (p) => {
       if (!p.selfie_path) return { playerId: p.id, url: null };
       const { data } = await admin.storage.from("selfies").createSignedUrl(p.selfie_path, 300);
       return { playerId: p.id, url: data?.signedUrl ?? null };
     }),
   );
-  return results;
+}
+
+export async function getTeamPortraits(teamId: string): Promise<{ playerId: string; url: string | null }[]> {
+  const admin = createAdminClient();
+  const { data: members } = await admin.from("team_members").select("player_id").eq("team_id", teamId);
+  return getPlayerPhotoUrls((members ?? []).map((m) => m.player_id));
 }
