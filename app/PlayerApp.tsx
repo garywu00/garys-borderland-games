@@ -24,9 +24,9 @@ import {
 import { uploadSelfie, getTeamPortraits, getPlayerPhotoUrls } from "@/lib/actions/photos";
 
 type Player = { id: string; display_name: string; claim_status: string; selfie_path: string | null };
-type Team = { id: string; name: string; hearts_cached: number; status: string; active_controller_auth_id?: string | null };
+export type Team = { id: string; name: string; hearts_cached: number; status: string; active_controller_auth_id?: string | null };
 type Invite = { id: string; from_player_id: string; to_player_id: string; status: string };
-type Matchup = {
+export type Matchup = {
   id: string;
   team_a_id: string;
   team_b_id: string;
@@ -36,7 +36,7 @@ type Matchup = {
   deadline_at: string | null;
   resolved_at: string | null;
 };
-type ShareStealSubmission = { team_id: string; choice: ShareStealChoice };
+export type ShareStealSubmission = { team_id: string; choice: ShareStealChoice };
 
 const SHARE_STEAL_RULES_COPY =
   "You'll face a pair chosen at random — watching you as closely as you watch them. Without a word between you, " +
@@ -1158,9 +1158,9 @@ function AddThirdPlayer({
   );
 }
 
-const REVEAL_COUNTDOWN_MS = 3000;
+export const REVEAL_COUNTDOWN_MS = 3000;
 
-function ShareStealReveal({
+export function ShareStealReveal({
   team,
   opponentTeam,
   matchup,
