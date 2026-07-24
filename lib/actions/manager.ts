@@ -351,8 +351,10 @@ export async function resetGameState() {
   await admin.from("finalists").delete().not("id", "is", null);
   await admin.from("share_steal_submissions").delete().not("id", "is", null);
   await admin.from("matchups").delete().not("id", "is", null);
+  await admin.from("clubs_pairings").delete().not("id", "is", null);
   await admin.from("checkpoint_arrivals").delete().not("id", "is", null);
   await admin.from("collected_cards").delete().not("id", "is", null);
+  await admin.from("team_trivia_attempts").delete().not("id", "is", null);
   await admin.from("heart_transactions").delete().not("id", "is", null);
   await admin.from("device_sessions").delete().not("id", "is", null);
   await admin.from("team_members").delete().not("id", "is", null);
