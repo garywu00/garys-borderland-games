@@ -9,6 +9,7 @@ import { TriviaFlow } from "@/components/TriviaFlow";
 import { ClubsPairingFlow } from "@/components/ClubsPairingFlow";
 import { ChickenPhotoFlow } from "@/components/ChickenPhotoFlow";
 import { CongratsScreen } from "@/components/CongratsScreen";
+import { GameStartCountdown } from "@/components/GameStartCountdown";
 import { CardDisplay, ProgressTrack } from "@/components/CardDisplay";
 import { CARD_META, NON_FINALIST_MESSAGE, resolveShareSteal, type CardCode, type ShareStealChoice } from "@/lib/game/rules";
 import {
@@ -115,6 +116,8 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   const [myChoice, setMyChoice] = useState<"share" | "steal" | null>(null);
   const [toast, setToastMsg] = useState<string | null>(null);
   const [eventStartsAt, setEventStartsAt] = useState<string | null>(null);
+  const [countdownStartedAt, setCountdownStartedAt] = useState<string | null>(null);
+  const [countdownDone, setCountdownDone] = useState(false);
   const [connected, setConnected] = useState(true);
   const [postPairingSeenTeamId, setPostPairingSeenTeamId] = useState<string | null>(null);
 
@@ -149,8 +152,9 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   }, [supabase, eventId, playerId]);
 
   const refreshEventStartsAt = useCallback(async () => {
-    const { data } = await supabase.from("events").select("starts_at").eq("id", eventId).maybeSingle();
+    const { data } = await supabase.from("events").select("starts_at, countdown_started_at").eq("id", eventId).maybeSingle();
     setEventStartsAt(data?.starts_at ?? null);
+    setCountdownStartedAt(data?.countdown_started_at ?? null);
   }, [supabase, eventId]);
 
   const refreshPairedPlayers = useCallback(async () => {
@@ -305,6 +309,13 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     prevHeartsRef.current = team.hearts_cached;
   }, [team]);
 
+  // A manager can trigger the pre-game countdown more than once (e.g. a
+  // second game night) — re-show it whenever the timestamp actually
+  // changes, rather than staying dismissed forever after the first time.
+  useEffect(() => {
+    setCountdownDone(false);
+  }, [countdownStartedAt]);
+
   // Not gated on matchup.status — RLS already restricts a pre-resolution
   // read to just this team's own row (never the opponent's), so fetching
   // at any stage is safe and is what lets a partner's device reflect "we
@@ -361,6 +372,16 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   ]);
 
   if (!ready) return null;
+
+  // ---------- Pre-game countdown (broadcast to every connected player,
+  // regardless of what screen they're on) ----------
+  if (countdownStartedAt && !countdownDone) {
+    return (
+      <Screen connected={connected}>
+        <GameStartCountdown countdownStartedAt={countdownStartedAt} onComplete={() => setCountdownDone(true)} />
+      </Screen>
+    );
+  }
 
   // ---------- Registration ----------
   if (!playerId || !me) {
@@ -1222,14 +1243,14 @@ export function ShareStealReveal({
       {!revealed && (
         <div
           className="pulse-accent"
-          style={{ fontFamily: "var(--font-display)", fontSize: 84, fontWeight: 700, color: "var(--accent)" }}
+          style={{ fontFamily: "var(--font-display)", fontSize: 120, fontWeight: 700, color: "var(--accent)" }}
         >
           {countdownNumber}
         </div>
       )}
       {revealed && outcome && (
         <div className="pop-in" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 20, width: "100%" }}>
-          <p style={{ fontSize: 19, lineHeight: 1.6, textAlign: "center", maxWidth: 300 }}>{outcome.copyForA}</p>
+          <p style={{ fontSize: 22, fontWeight: 500, lineHeight: 1.5, textAlign: "center", maxWidth: 320 }}>{outcome.copyForA}</p>
           <button className="btn" style={{ width: "100%" }} onClick={onDismiss}>
             Next game
           </button>
@@ -1254,22 +1275,22 @@ function RevealColumn({
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, flex: 1 }}>
-      <PortraitPair names={names} photos={photos} size={56} />
+      <PortraitPair names={names} photos={photos} size={76} />
       <p className="label" style={{ marginTop: 4 }}>
         {label}
       </p>
       {choice !== undefined && delta !== undefined && (
         <div className="pop-in" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-          <div style={{ fontSize: 16, fontWeight: 600, color: delta > 0 ? "var(--ok)" : delta < 0 ? "var(--accent)" : "var(--fg)" }}>
+          <div style={{ fontSize: 20, fontWeight: 700, color: delta > 0 ? "var(--ok)" : delta < 0 ? "var(--accent)" : "var(--fg)" }}>
             ♥ {delta > 0 ? `+${delta}` : delta}
           </div>
           <div
             style={{
-              fontSize: 12,
+              fontSize: 14,
               fontWeight: 600,
               letterSpacing: "0.06em",
-              border: "1.6px solid var(--line)",
-              padding: "4px 10px",
+              border: "2px solid var(--line)",
+              padding: "6px 14px",
               textTransform: "uppercase",
             }}
           >

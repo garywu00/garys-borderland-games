@@ -301,13 +301,36 @@ export async function closeGame(eventId: string) {
 }
 
 /**
- * Round 1 pairs are matched automatically, first-come-first-served, the
- * moment a second pair forms (see tryAutoMatchRound1 in player actions).
- * This is the manual backup for whatever that misses — e.g. pairs that
- * formed before this went live, or a race where two pairs landed in the
- * queue at the exact same instant. Kept first-come-first-served too, by
- * team creation time, rather than random, to match the live behavior.
+ * Broadcasts a 3-minute pre-game hype countdown to every connected player
+ * at once, regardless of what screen they're on — meant for the moment
+ * Gary starts explaining the rules in person, right after sending the
+ * link. Distinct from the in-game elapsed timer (events.starts_at), which
+ * only starts once the first pair actually forms.
  */
+export async function startGameCountdown() {
+  const manager = await requireManager();
+  const admin = createAdminClient();
+
+  const { data: event } = await admin.from("events").select("id").eq("status", "active").limit(1).maybeSingle();
+  if (!event) return { ok: false as const, reason: "no_active_event" as const };
+
+  await admin.from("events").update({ countdown_started_at: new Date().toISOString() }).eq("id", event.id);
+  await logAction(manager.id, manager.role, "Started game countdown", null, null, null);
+  return { ok: true as const };
+}
+
+export async function cancelGameCountdown() {
+  const manager = await requireManager();
+  const admin = createAdminClient();
+
+  const { data: event } = await admin.from("events").select("id").eq("status", "active").limit(1).maybeSingle();
+  if (!event) return { ok: false as const, reason: "no_active_event" as const };
+
+  await admin.from("events").update({ countdown_started_at: null }).eq("id", event.id);
+  await logAction(manager.id, manager.role, "Cancelled game countdown", null, null, null);
+  return { ok: true as const };
+}
+
 /**
  * Clears all pairing/game state (teams, matchups, hearts, cards, checkpoints,
  * finalists, winner results, audit log) back to "roster exists, nobody's
@@ -321,7 +344,7 @@ export async function resetGameState() {
   const all = () => admin.from("teams").update({ active_controller_device_id: null }).not("id", "is", null);
   await all();
 
-  await admin.from("events").update({ starts_at: null }).not("id", "is", null);
+  await admin.from("events").update({ starts_at: null, countdown_started_at: null }).not("id", "is", null);
 
   await admin.from("manager_actions").delete().not("id", "is", null);
   await admin.from("winner_results").delete().not("id", "is", null);

@@ -206,6 +206,7 @@ export type Database = {
       }
       events: {
         Row: {
+          countdown_started_at: string | null
           created_at: string
           id: string
           name: string
@@ -213,6 +214,7 @@ export type Database = {
           status: string
         }
         Insert: {
+          countdown_started_at?: string | null
           created_at?: string
           id?: string
           name: string
@@ -220,6 +222,7 @@ export type Database = {
           status?: string
         }
         Update: {
+          countdown_started_at?: string | null
           created_at?: string
           id?: string
           name?: string

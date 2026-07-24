@@ -12,6 +12,8 @@ import {
   confirmArrival,
   verifyWinner,
   resetGameState,
+  startGameCountdown,
+  cancelGameCountdown,
   updatePlayerName,
   deleteTeam,
   addPlayer,
@@ -61,6 +63,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
   const [triviaAttempts, setTriviaAttempts] = useState<TriviaAttempt[]>([]);
   const [clubsPairings, setClubsPairings] = useState<ClubsPairing[]>([]);
   const [matchups, setMatchups] = useState<Matchup[]>([]);
+  const [countdownStartedAt, setCountdownStartedAt] = useState<string | null>(null);
   const [diamondsArrivals, setDiamondsArrivals] = useState<CheckpointArrival[]>([]);
   const [toast, setToastMsg] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
@@ -100,6 +103,8 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
     setDiamondsArrivals(da ?? []);
     const { data: m } = await supabase.from("matchups").select("id, team_a_id, team_b_id, status").neq("status", "resolved");
     setMatchups(m ?? []);
+    const { data: ev } = await supabase.from("events").select("countdown_started_at").eq("status", "active").limit(1).maybeSingle();
+    setCountdownStartedAt(ev?.countdown_started_at ?? null);
   }, [supabase]);
 
   useEffect(() => {
@@ -115,6 +120,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
       .on("postgres_changes", { event: "*", schema: "public", table: "clubs_pairings" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "checkpoint_arrivals" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "matchups" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "events" }, refresh)
       .subscribe((status) => setConnected(status === "SUBSCRIBED"));
     return () => {
       supabase.removeChannel(channel);
@@ -310,6 +316,15 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
           players={players}
           claims={claims}
           recentActions={recentActions}
+          countdownStartedAt={countdownStartedAt}
+          onStartCountdown={async () => {
+            const result = await startGameCountdown();
+            notify(result.ok ? "Countdown started on every screen." : "Could not start — no active event found.");
+          }}
+          onCancelCountdown={async () => {
+            const result = await cancelGameCountdown();
+            notify(result.ok ? "Countdown cancelled." : "Could not cancel.");
+          }}
           onAdjust={onAdjust}
           onResetGame={async () => {
             await resetGameState();
@@ -746,6 +761,9 @@ function OverviewView({
   players,
   claims,
   recentActions,
+  countdownStartedAt,
+  onStartCountdown,
+  onCancelCountdown,
   onAdjust,
   onResetGame,
   onRenamePlayer,
@@ -757,6 +775,9 @@ function OverviewView({
   players: Player[];
   claims: Claim[];
   recentActions: ActivityEntry[];
+  countdownStartedAt: string | null;
+  onStartCountdown: () => void;
+  onCancelCountdown: () => void;
   onAdjust: (id: string, delta: number) => void;
   onResetGame: () => void;
   onRenamePlayer: (id: string, name: string) => void;
@@ -771,6 +792,32 @@ function OverviewView({
   return (
     <div>
       <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, textAlign: "center", marginBottom: 16 }}>Overview</h2>
+
+      <div style={{ border: "1.6px solid var(--line)", padding: 16, marginBottom: 20 }}>
+        <p className="label" style={{ marginBottom: 10 }}>
+          Pre-game countdown
+        </p>
+        {countdownStartedAt ? (
+          <>
+            <p style={{ fontSize: 14, color: "var(--muted)", marginBottom: 10 }}>
+              Running on every screen — 3 minutes from when it was started.
+            </p>
+            <button className="btn btn-outline" style={{ width: "100%" }} onClick={onCancelCountdown}>
+              Cancel countdown
+            </button>
+          </>
+        ) : (
+          <>
+            <p style={{ fontSize: 14, color: "var(--muted)", marginBottom: 10 }}>
+              Sends everyone straight to a 3-minute countdown screen, wherever they are — send the link, then hit
+              this once you start explaining the rules.
+            </p>
+            <button className="btn" style={{ width: "100%" }} onClick={onStartCountdown}>
+              Start game
+            </button>
+          </>
+        )}
+      </div>
 
       <p className="label">All teams ({teams.length})</p>
       {teams.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>No teams yet.</p>}
