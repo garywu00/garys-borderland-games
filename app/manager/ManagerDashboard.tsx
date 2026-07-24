@@ -64,6 +64,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
   const [diamondsArrivals, setDiamondsArrivals] = useState<CheckpointArrival[]>([]);
   const [toast, setToastMsg] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
+  const [connected, setConnected] = useState(true);
 
   function notify(msg: string) {
     setToastMsg(msg);
@@ -114,7 +115,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
       .on("postgres_changes", { event: "*", schema: "public", table: "clubs_pairings" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "checkpoint_arrivals" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "matchups" }, refresh)
-      .subscribe();
+      .subscribe((status) => setConnected(status === "SUBSCRIBED"));
     return () => {
       supabase.removeChannel(channel);
     };
@@ -132,6 +133,23 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
 
   return (
     <main style={{ maxWidth: 560, margin: "0 auto", padding: "16px 16px 40px" }}>
+      {!connected && (
+        <div
+          role="status"
+          style={{
+            textAlign: "center",
+            fontSize: 12,
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
+            color: "var(--accent)",
+            border: "1.6px solid var(--accent)",
+            padding: "6px 10px",
+            marginBottom: 10,
+          }}
+        >
+          Reconnecting…
+        </div>
+      )}
       <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 4px", borderBottom: "1px solid rgba(10,10,10,0.15)", marginBottom: 12 }}>
         <div>
           <div style={{ fontSize: 16 }}>{displayName}</div>

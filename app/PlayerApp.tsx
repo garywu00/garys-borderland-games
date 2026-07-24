@@ -115,6 +115,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   const [myChoice, setMyChoice] = useState<"share" | "steal" | null>(null);
   const [toast, setToastMsg] = useState<string | null>(null);
   const [eventStartsAt, setEventStartsAt] = useState<string | null>(null);
+  const [connected, setConnected] = useState(true);
   const [postPairingSeenTeamId, setPostPairingSeenTeamId] = useState<string | null>(null);
 
   function notify(msg: string) {
@@ -304,8 +305,13 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     prevHeartsRef.current = team.hearts_cached;
   }, [team]);
 
+  // Not gated on matchup.status — RLS already restricts a pre-resolution
+  // read to just this team's own row (never the opponent's), so fetching
+  // at any stage is safe and is what lets a partner's device reflect "we
+  // already submitted" the instant the other partner does, rather than
+  // only finding out after trying to submit and getting rejected.
   const refreshShareStealSubmissions = useCallback(async () => {
-    if (!matchup || matchup.status !== "resolved") return;
+    if (!matchup) return;
     const { data } = await supabase.from("share_steal_submissions").select("team_id, choice").eq("matchup_id", matchup.id);
     setShareStealSubmissions((data as ShareStealSubmission[] | null) ?? []);
   }, [supabase, matchup]);
@@ -328,11 +334,12 @@ export function PlayerApp({ eventId }: { eventId: string }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "pair_invites" }, refreshInvites)
       .on("postgres_changes", { event: "*", schema: "public", table: "teams" }, refreshTeam)
       .on("postgres_changes", { event: "*", schema: "public", table: "matchups" }, refreshMatchup)
+      .on("postgres_changes", { event: "*", schema: "public", table: "share_steal_submissions" }, refreshShareStealSubmissions)
       .on("postgres_changes", { event: "*", schema: "public", table: "collected_cards" }, refreshCards)
       .on("postgres_changes", { event: "*", schema: "public", table: "finalists" }, refreshFinalist)
       .on("postgres_changes", { event: "*", schema: "public", table: "winner_results" }, refreshWinner)
       .on("postgres_changes", { event: "*", schema: "public", table: "events" }, refreshEventStartsAt)
-      .subscribe();
+      .subscribe((status) => setConnected(status === "SUBSCRIBED"));
     return () => {
       supabase.removeChannel(channel);
     };
@@ -346,6 +353,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     refreshInvites,
     refreshTeam,
     refreshMatchup,
+    refreshShareStealSubmissions,
     refreshCards,
     refreshFinalist,
     refreshWinner,
@@ -358,7 +366,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   if (!playerId || !me) {
     if (claimPinShown && me) {
       return (
-        <Screen startsAt={eventStartsAt}>
+        <Screen startsAt={eventStartsAt} connected={connected}>
           <Stack>
             <Portrait name={me.display_name} photoUrl={selfie} size={96} />
             <h2 style={{ fontWeight: 400, fontSize: 24 }}>Save this, just in case</h2>
@@ -393,7 +401,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
       );
     }
     return (
-      <Screen startsAt={eventStartsAt}>
+      <Screen startsAt={eventStartsAt} connected={connected}>
         {uiStep === "landing" && (
           <Stack>
             <div style={{ textAlign: "center" }}>
@@ -471,7 +479,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   // ---------- Pairing lobby ----------
   if (!teamId || !team) {
     return (
-      <Screen startsAt={eventStartsAt}>
+      <Screen startsAt={eventStartsAt} connected={connected}>
         <PairingLobby
           me={me}
           selfie={selfie}
@@ -492,7 +500,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   // ---------- Post-pairing rules (shown once per team, identical on every device) ----------
   if (postPairingSeenTeamId !== teamId) {
     return (
-      <Screen startsAt={eventStartsAt}>
+      <Screen startsAt={eventStartsAt} connected={connected}>
         <PostPairingScreen
           onContinue={() => {
             savePostPairingSeenTeamId(teamId);
@@ -509,7 +517,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   // instant resolution happens) ----------
   if (matchup && matchup.id === revealMatchupId && matchup.status === "resolved" && !revealDismissed && opponentTeam) {
     return (
-      <Screen startsAt={eventStartsAt}>
+      <Screen startsAt={eventStartsAt} connected={connected}>
         <ShareStealReveal
           team={team}
           opponentTeam={opponentTeam}
@@ -525,7 +533,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   // ---------- Congratulations (Round 2 pass / Round 3 approval) ----------
   if (congrats) {
     return (
-      <Screen startsAt={eventStartsAt}>
+      <Screen startsAt={eventStartsAt} connected={connected}>
         <CongratsScreen
           teamId={team.id}
           teamName={team.name}
@@ -545,7 +553,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
 
   // ---------- In-game ----------
   return (
-    <Screen startsAt={eventStartsAt}>
+    <Screen startsAt={eventStartsAt} connected={connected}>
       <PlayerHeader team={team} photos={myTeamPhotos} />
       {teamMemberCount < 3 && team.status === "round1" && !matchup && (
         <AddThirdPlayer teamId={teamId} players={players} pairedPlayerIds={pairedPlayerIds} notify={notify} />
@@ -558,6 +566,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
           opponentTeam={opponentTeam}
           myChoice={myChoice}
           setMyChoice={setMyChoice}
+          mySubmittedChoice={shareStealSubmissions.find((s) => s.team_id === teamId)?.choice ?? null}
           notify={notify}
         />
       )}
@@ -656,7 +665,15 @@ export function PlayerApp({ eventId }: { eventId: string }) {
 // Sub-components
 // ============================================================================
 
-function Screen({ children, startsAt }: { children: React.ReactNode; startsAt?: string | null }) {
+function Screen({
+  children,
+  startsAt,
+  connected = true,
+}: {
+  children: React.ReactNode;
+  startsAt?: string | null;
+  connected?: boolean;
+}) {
   return (
     <main
       style={{
@@ -668,6 +685,23 @@ function Screen({ children, startsAt }: { children: React.ReactNode; startsAt?: 
         flexDirection: "column",
       }}
     >
+      {!connected && (
+        <div
+          role="status"
+          style={{
+            textAlign: "center",
+            fontSize: 12,
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
+            color: "var(--accent)",
+            border: "1.6px solid var(--accent)",
+            padding: "6px 10px",
+            marginBottom: 10,
+          }}
+        >
+          Reconnecting…
+        </div>
+      )}
       {startsAt !== undefined && <GameTimer startsAt={startsAt} />}
       {children}
     </main>
@@ -1253,6 +1287,7 @@ function Round1Flow({
   opponentTeam,
   myChoice,
   setMyChoice,
+  mySubmittedChoice,
   notify,
 }: {
   teamId: string;
@@ -1261,6 +1296,7 @@ function Round1Flow({
   opponentTeam: Team | null;
   myChoice: "share" | "steal" | null;
   setMyChoice: (c: "share" | "steal" | null) => void;
+  mySubmittedChoice: ShareStealChoice | null;
   notify: (msg: string) => void;
 }) {
   const [submitting, setSubmitting] = useState(false);
@@ -1324,25 +1360,33 @@ function Round1Flow({
       </Stack>
     );
   } else if (matchup.status === "active") {
-    const mySubmitted = myChoice !== null;
-    const locked = mySubmitted;
+    // mySubmittedChoice is server-derived — the instant either partner
+    // submits, both devices reflect it via realtime, instead of the other
+    // partner only finding out by trying to submit and getting rejected.
+    const mySubmitted = mySubmittedChoice !== null;
+    const effectiveChoice = mySubmittedChoice ?? myChoice;
     content = (
       <Stack>
-        <p className="label">Select your action</p>
+        <p className="label">{mySubmitted ? "Choice locked in" : "Select your action"}</p>
+        {mySubmitted && (
+          <p style={{ fontSize: 15, color: "var(--muted)", textAlign: "center" }}>
+            Your pair already chose — waiting for the other team.
+          </p>
+        )}
         <div style={{ display: "flex", gap: 16, width: "100%" }}>
           {(["share", "steal"] as const).map((choice) => (
             <button
               key={choice}
               className="btn-outline"
-              aria-pressed={myChoice === choice}
-              disabled={locked}
+              aria-pressed={effectiveChoice === choice}
+              disabled={mySubmitted}
               style={{
                 flex: 1,
                 border: "2px solid var(--line)",
                 padding: "36px 12px",
-                background: myChoice === choice ? "var(--btn-bg)" : "transparent",
-                color: myChoice === choice ? "var(--btn-fg)" : "var(--fg)",
-                cursor: locked ? "not-allowed" : "pointer",
+                background: effectiveChoice === choice ? "var(--btn-bg)" : "transparent",
+                color: effectiveChoice === choice ? "var(--btn-fg)" : "var(--fg)",
+                cursor: mySubmitted ? "not-allowed" : "pointer",
               }}
               onClick={() => setMyChoice(choice)}
             >
@@ -1350,23 +1394,25 @@ function Round1Flow({
             </button>
           ))}
         </div>
-        <button
-          className="btn"
-          style={{ width: "100%" }}
-          disabled={!myChoice || submitting || locked}
-          onClick={async () => {
-            if (!myChoice) return;
-            setSubmitting(true);
-            try {
-              const result = await submitShareSteal(matchup.id, teamId, myChoice);
-              if (!result.ok) notify("Already submitted.");
-            } finally {
-              setSubmitting(false);
-            }
-          }}
-        >
-          {submitting ? "Submitting…" : "Submit"}
-        </button>
+        {!mySubmitted && (
+          <button
+            className="btn"
+            style={{ width: "100%" }}
+            disabled={!myChoice || submitting}
+            onClick={async () => {
+              if (!myChoice) return;
+              setSubmitting(true);
+              try {
+                const result = await submitShareSteal(matchup.id, teamId, myChoice);
+                if (!result.ok) notify("Already submitted.");
+              } finally {
+                setSubmitting(false);
+              }
+            }}
+          >
+            {submitting ? "Submitting…" : "Submit"}
+          </button>
+        )}
       </Stack>
     );
   } else {
