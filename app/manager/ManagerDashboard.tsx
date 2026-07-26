@@ -14,6 +14,7 @@ import {
   resetGameState,
   startGameCountdown,
   cancelGameCountdown,
+  expediteGameCountdown,
   updatePlayerName,
   deleteTeam,
   addPlayer,
@@ -324,6 +325,10 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
           onCancelCountdown={async () => {
             const result = await cancelGameCountdown();
             notify(result.ok ? "Countdown cancelled." : "Could not cancel.");
+          }}
+          onExpediteCountdown={async () => {
+            const result = await expediteGameCountdown();
+            notify(result.ok ? "Countdown skipped to zero on every screen." : "Could not expedite.");
           }}
           onAdjust={onAdjust}
           onResetGame={async () => {
@@ -764,6 +769,7 @@ function OverviewView({
   countdownStartedAt,
   onStartCountdown,
   onCancelCountdown,
+  onExpediteCountdown,
   onAdjust,
   onResetGame,
   onRenamePlayer,
@@ -778,6 +784,7 @@ function OverviewView({
   countdownStartedAt: string | null;
   onStartCountdown: () => void;
   onCancelCountdown: () => void;
+  onExpediteCountdown: () => void;
   onAdjust: (id: string, delta: number) => void;
   onResetGame: () => void;
   onRenamePlayer: (id: string, name: string) => void;
@@ -800,17 +807,24 @@ function OverviewView({
         {countdownStartedAt ? (
           <>
             <p style={{ fontSize: 14, color: "var(--muted)", marginBottom: 10 }}>
-              Running on every screen — 3 minutes from when it was started.
+              Running on every screen — 3 minutes from when it was started. Players can&apos;t take a selfie or
+              pair up until it reaches zero.
             </p>
-            <button className="btn btn-outline" style={{ width: "100%" }} onClick={onCancelCountdown}>
-              Cancel countdown
-            </button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn" style={{ width: "100%" }} onClick={onExpediteCountdown}>
+                Skip to zero
+              </button>
+              <button className="btn btn-outline" style={{ width: "100%" }} onClick={onCancelCountdown}>
+                Cancel
+              </button>
+            </div>
           </>
         ) : (
           <>
             <p style={{ fontSize: 14, color: "var(--muted)", marginBottom: 10 }}>
-              Sends everyone straight to a 3-minute countdown screen, wherever they are — send the link, then hit
-              this once you start explaining the rules.
+              Until you hit this, everyone just sees a "game not started" screen — no selfies or pairing yet. This
+              sends everyone straight to a 3-minute countdown, wherever they are — send the link, then hit this
+              once you start explaining the rules.
             </p>
             <button className="btn" style={{ width: "100%" }} onClick={onStartCountdown}>
               Start game

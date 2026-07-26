@@ -3,6 +3,7 @@
 import { createAdminClient } from "@/lib/supabase/server";
 import { applyHeartDelta } from "@/lib/actions/hearts";
 import { requireManager } from "@/lib/actions/session";
+import { GAME_COUNTDOWN_DURATION_MS } from "@/lib/game/rules";
 
 export async function logAction(
   actorId: string,
@@ -328,6 +329,27 @@ export async function cancelGameCountdown() {
 
   await admin.from("events").update({ countdown_started_at: null }).eq("id", event.id);
   await logAction(manager.id, manager.role, "Cancelled game countdown", null, null, null);
+  return { ok: true as const };
+}
+
+/**
+ * Backdates countdown_started_at so every player's own clock reads it as
+ * already elapsed — skips the wait without needing a separate "done" flag,
+ * reusing the exact same elapsed-time check every client already runs.
+ * Mainly for rehearsal/testing, where waiting out the real 3 minutes on
+ * every pass is impractical.
+ */
+export async function expediteGameCountdown() {
+  const manager = await requireManager();
+  const admin = createAdminClient();
+
+  const { data: event } = await admin.from("events").select("id, countdown_started_at").eq("status", "active").limit(1).maybeSingle();
+  if (!event) return { ok: false as const, reason: "no_active_event" as const };
+  if (!event.countdown_started_at) return { ok: false as const, reason: "not_running" as const };
+
+  const backdated = new Date(Date.now() - GAME_COUNTDOWN_DURATION_MS).toISOString();
+  await admin.from("events").update({ countdown_started_at: backdated }).eq("id", event.id);
+  await logAction(manager.id, manager.role, "Expedited game countdown", null, null, null);
   return { ok: true as const };
 }
 

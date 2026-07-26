@@ -9,9 +9,16 @@ import { TriviaFlow } from "@/components/TriviaFlow";
 import { ClubsPairingFlow } from "@/components/ClubsPairingFlow";
 import { ChickenPhotoFlow } from "@/components/ChickenPhotoFlow";
 import { CongratsScreen } from "@/components/CongratsScreen";
-import { GameStartCountdown } from "@/components/GameStartCountdown";
+import { GameStartCountdown, GameNotStartedScreen } from "@/components/GameStartCountdown";
 import { CardDisplay, ProgressTrack } from "@/components/CardDisplay";
-import { CARD_META, NON_FINALIST_MESSAGE, resolveShareSteal, type CardCode, type ShareStealChoice } from "@/lib/game/rules";
+import {
+  CARD_META,
+  GAME_COUNTDOWN_DURATION_MS,
+  NON_FINALIST_MESSAGE,
+  resolveShareSteal,
+  type CardCode,
+  type ShareStealChoice,
+} from "@/lib/game/rules";
 import {
   claimPlayer,
   sendInvite,
@@ -309,11 +316,21 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     prevHeartsRef.current = team.hearts_cached;
   }, [team]);
 
-  // A manager can trigger the pre-game countdown more than once (e.g. a
-  // second game night) — re-show it whenever the timestamp actually
-  // changes, rather than staying dismissed forever after the first time.
+  // Recompute from real elapsed time whenever the timestamp changes, rather
+  // than always resetting to false. A manager can trigger the countdown more
+  // than once (e.g. a second game night), so it still needs to re-show for a
+  // genuinely fresh timestamp — but the very first fetch on page load can
+  // just as easily land on a timestamp from minutes or days ago, and
+  // unconditionally resetting to false used to spuriously block, then
+  // self-correct a moment later, yanking players out of whatever step of
+  // selfie/pairing they were already on the instant the fetch resolved.
   useEffect(() => {
-    setCountdownDone(false);
+    if (!countdownStartedAt) {
+      setCountdownDone(false);
+      return;
+    }
+    const elapsed = Date.now() - new Date(countdownStartedAt).getTime() >= GAME_COUNTDOWN_DURATION_MS;
+    setCountdownDone(elapsed);
   }, [countdownStartedAt]);
 
   // Not gated on matchup.status — RLS already restricts a pre-resolution
@@ -373,9 +390,19 @@ export function PlayerApp({ eventId }: { eventId: string }) {
 
   if (!ready) return null;
 
-  // ---------- Pre-game countdown (broadcast to every connected player,
-  // regardless of what screen they're on) ----------
-  if (countdownStartedAt && !countdownDone) {
+  // ---------- Pre-game gate: nobody can register, take a selfie, or pair up
+  // until an admin starts the game and the 3-minute countdown clears. Keyed
+  // on !teamId rather than the countdown fields alone, so a team that's
+  // already formed and playing can never get bounced back here — e.g. if a
+  // manager cancels/restarts the countdown well after the event is underway.
+  if (!teamId && !countdownDone) {
+    if (!countdownStartedAt) {
+      return (
+        <Screen connected={connected}>
+          <GameNotStartedScreen />
+        </Screen>
+      );
+    }
     return (
       <Screen connected={connected}>
         <GameStartCountdown countdownStartedAt={countdownStartedAt} onComplete={() => setCountdownDone(true)} />
@@ -1086,24 +1113,19 @@ function OutgoingInviteScreen({
   );
 }
 
-function PostPairingScreen({ onContinue }: { onContinue: () => void }) {
+export function PostPairingScreen({ onContinue }: { onContinue: () => void }) {
   return (
     <Stack>
-      <p className="label">The game begins</p>
-      <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 28, textAlign: "center" }}>
-        You are no longer alone.
-      </h2>
-      <p style={{ fontSize: 17, lineHeight: 1.7, textAlign: "center", maxWidth: 320 }}>
-        You start with <strong style={{ color: "var(--accent)" }}>5 hearts</strong>. Find the final destination
-        before the other pairs get there — along the way you&apos;ll gain and lose hearts. Run out, and
-        you&apos;re eliminated. The first three pairs to clear all three checkpoints and arrive qualify for one
-        final game.
+      <p className="bracket-title">【 GAME START 】</p>
+      <p style={{ fontSize: 17, lineHeight: 1.6, textAlign: "center", maxWidth: 320 }}>
+        Your team starts with <strong style={{ color: "var(--accent)" }}>5 hearts</strong>. Lose them all and
+        you&apos;re out.
       </p>
       <p style={{ fontSize: 14, lineHeight: 1.6, textAlign: "center", color: "var(--muted)", maxWidth: 320 }}>
         Either of you can play from your own phone — no need to share one.
       </p>
       <button className="btn" style={{ width: "100%" }} onClick={onContinue}>
-        Start Game
+        Continue
       </button>
     </Stack>
   );

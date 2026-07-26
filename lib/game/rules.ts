@@ -1,3 +1,5 @@
+export const GAME_COUNTDOWN_DURATION_MS = 3 * 60 * 1000;
+
 export type ShareStealChoice = "share" | "steal";
 
 export interface ShareStealOutcome {

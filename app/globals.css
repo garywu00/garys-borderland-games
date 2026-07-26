@@ -55,6 +55,13 @@ button {
   margin-bottom: 8px;
 }
 
+.bracket-title {
+  font-family: var(--font-body);
+  font-size: 32px;
+  color: var(--fg);
+  text-align: center;
+}
+
 .btn {
   font-family: var(--font-body);
   font-size: 18px;
