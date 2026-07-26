@@ -16,6 +16,24 @@
   --font-display: Georgia, "Iowan Old Style", "Times New Roman", serif;
   --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", monospace;
+
+  /* Type scale — pick the nearest step instead of a one-off px value.
+     Sizes fixed by Figma (the 32px bracket-title, the 56/120px countdown
+     numbers, the 40px recovery-PIN mono display) intentionally sit outside
+     this scale and stay as literals where they're used. */
+  --fs-2xs: 11px; /* inline tags, e.g. "YOU" */
+  --fs-xs: 12px; /* fine print, connection banner */
+  --fs-sm: 13px; /* meta text — matches .label */
+  --fs-md: 14px; /* secondary text, small buttons */
+  --fs-body: 15px; /* default paragraph, compact name rows */
+  --fs-body-lg: 17px; /* emphasized body copy on dramatic screens */
+  --fs-callout: 19px; /* bordered directive text, e.g. "HEAD TO X" */
+  --fs-badge: 20px; /* compact bold stat badges (heart deltas) */
+  --fs-h4: 24px; /* utilitarian headings, modal titles, stat numbers */
+  --fs-h3: 28px; /* font-display sub-headlines */
+  --fs-h2: 32px; /* font-display headline / name reveal */
+  --fs-h1: 36px; /* dramatic status headline (eliminated, finalist) */
+  --fs-display: 44px; /* winner headline — top of the hierarchy */
 }
 
 * {

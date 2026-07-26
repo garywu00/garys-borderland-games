@@ -417,8 +417,8 @@ export function PlayerApp({ eventId }: { eventId: string }) {
         <Screen startsAt={eventStartsAt} connected={connected}>
           <Stack>
             <Portrait name={me.display_name} photoUrl={selfie} size={96} />
-            <h2 style={{ fontWeight: 400, fontSize: 24 }}>Save this, just in case</h2>
-            <p style={{ fontSize: 15, textAlign: "center", maxWidth: 320 }}>
+            <h2 style={{ fontWeight: 400, fontSize: "var(--fs-h4)" }}>Save this, just in case</h2>
+            <p style={{ fontSize: "var(--fs-body)", textAlign: "center", maxWidth: 320 }}>
               If you ever picked the wrong name by mistake, tell a manager this PIN and they can fix it for you.
             </p>
             <div className="label">Your recovery PIN</div>
@@ -497,7 +497,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
         {uiStep === "confirm" && me && (
           <Stack>
             <Portrait name={me.display_name} photoUrl={selfie} size={120} />
-            <h2 style={{ fontWeight: 400, fontSize: 28 }}>Hi, {me.display_name.split(" ")[0]}!</h2>
+            <h2 style={{ fontWeight: 400, fontSize: "var(--fs-h3)" }}>Hi, {me.display_name.split(" ")[0]}!</h2>
             <button
               className="btn"
               style={{ width: "100%" }}
@@ -642,10 +642,10 @@ export function PlayerApp({ eventId }: { eventId: string }) {
         <>
           <div className="dramatic-panel">
             <p className="label flicker-in">Your hearts are gone</p>
-            <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: 34, textAlign: "center" }}>
+            <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: "var(--fs-h1)", textAlign: "center" }}>
               You&apos;re out of hearts — you&apos;re eliminated.
             </h2>
-            <p className="fade-up" style={{ fontSize: 17, textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "var(--muted)" }}>
+            <p className="fade-up" style={{ fontSize: "var(--fs-body-lg)", textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "var(--muted)" }}>
               Head to Focal Point Brewery — the others will find you there.
             </p>
             {collectedCards.length > 0 && (
@@ -666,10 +666,10 @@ export function PlayerApp({ eventId }: { eventId: string }) {
         <>
           <div className="dramatic-panel">
             <p className="label flicker-in">Game over</p>
-            <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: 34, textAlign: "center" }}>
+            <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: "var(--fs-h1)", textAlign: "center" }}>
               Three pairs made it through. You weren&apos;t one of them.
             </h2>
-            <p className="fade-up" style={{ fontSize: 17, textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "var(--muted)" }}>
+            <p className="fade-up" style={{ fontSize: "var(--fs-body-lg)", textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "var(--muted)" }}>
               {NON_FINALIST_MESSAGE}
             </p>
             {collectedCards.length > 0 && (
@@ -692,13 +692,13 @@ export function PlayerApp({ eventId }: { eventId: string }) {
           <div className="pop-in">
             <PortraitPair names={team.name.split(" + ")} photos={myTeamPhotos} size={92} />
           </div>
-          <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: 44, fontWeight: 700, textAlign: "center" }}>
+          <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: "var(--fs-display)", fontWeight: 700, textAlign: "center" }}>
             You won.
           </h2>
-          <p className="fade-up" style={{ fontSize: 17, textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "var(--muted)" }}>
+          <p className="fade-up" style={{ fontSize: "var(--fs-body-lg)", textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "var(--muted)" }}>
             {team.name} claims Gary&apos;s 26th Borderland Games — right here, at Focal Point Brewery.
           </p>
-          <div style={{ fontSize: 24 }}>♥ {team.hearts_cached} remaining</div>
+          <div style={{ fontSize: "var(--fs-h4)" }}>♥ {team.hearts_cached} remaining</div>
           <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
             {collectedCards.map((c) => (
               <CardDisplay key={c} code={c} width={90} />
@@ -712,14 +712,14 @@ export function PlayerApp({ eventId }: { eventId: string }) {
           <div className="pop-in">
             <PortraitPair names={team.name.split(" + ")} photos={myTeamPhotos} size={92} />
           </div>
-          <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: 36, textAlign: "center" }}>
+          <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: "var(--fs-h1)", textAlign: "center" }}>
             Finalist #{finalistSlot ?? "—"}
           </h2>
-          <p className="fade-up" style={{ fontSize: 17, textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "var(--muted)" }}>
+          <p className="fade-up" style={{ fontSize: "var(--fs-body-lg)", textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "var(--muted)" }}>
             You&apos;re standing at Focal Point Brewery — one of only three pairs left. One final game decides
             everything.
           </p>
-          <div style={{ fontSize: 24 }}>♥ {team.hearts_cached} remaining</div>
+          <div style={{ fontSize: "var(--fs-h4)" }}>♥ {team.hearts_cached} remaining</div>
           <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
             {collectedCards.map((c) => (
               <CardDisplay key={c} code={c} width={90} />
@@ -764,7 +764,7 @@ function Screen({
           role="status"
           style={{
             textAlign: "center",
-            fontSize: 12,
+            fontSize: "var(--fs-xs)",
             letterSpacing: "0.06em",
             textTransform: "uppercase",
             color: "var(--accent)",
@@ -805,7 +805,7 @@ function Toast({ msg }: { msg: string | null }) {
         background: "var(--fg)",
         color: "var(--bg)",
         padding: "12px 16px",
-        fontSize: 14,
+        fontSize: "var(--fs-md)",
         textAlign: "center",
       }}
     >
@@ -821,13 +821,13 @@ function PlayerHeader({ team, photos }: { team: Team; photos: (string | null)[] 
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
         <PortraitPair names={team.name.split(" + ")} photos={photos} size={32} />
         <div>
-          <div style={{ fontSize: 16 }}>{team.name}</div>
-          <div style={{ fontSize: 14 }}>♥ {team.hearts_cached}</div>
+          <div style={{ fontSize: "var(--fs-body)" }}>{team.name}</div>
+          <div style={{ fontSize: "var(--fs-md)" }}>♥ {team.hearts_cached}</div>
         </div>
       </div>
       <button
         className="btn-outline"
-        style={{ width: 40, height: 40, minHeight: 40, padding: 0, border: "1.6px solid var(--line)" }}
+        style={{ width: 44, height: 44, minHeight: 44, padding: 0, border: "1.6px solid var(--line)" }}
         aria-label="Leaderboard"
         onClick={() => setShowLeaderboard(true)}
       >
@@ -885,8 +885,8 @@ function LeaderboardModal({ myTeamId, onClose }: { myTeamId: string; onClose: ()
     <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.55)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 50 }}>
       <div style={{ background: "var(--bg)", width: "100%", maxHeight: "85vh", overflowY: "auto", padding: 22 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-          <h2 style={{ fontWeight: 400, fontSize: 22 }}>Leaderboard</h2>
-          <button className="btn-outline" style={{ width: 36, height: 36, border: "1.6px solid var(--line)" }} onClick={onClose}>
+          <h2 style={{ fontWeight: 400, fontSize: "var(--fs-h4)" }}>Leaderboard</h2>
+          <button className="btn-outline" style={{ width: 44, height: 44, border: "1.6px solid var(--line)" }} onClick={onClose}>
             ✕
           </button>
         </div>
@@ -908,14 +908,14 @@ export function LeaderboardRow({ team, highlight, rank }: { team: Team; highligh
         borderLeft: highlight ? "3px solid var(--accent)" : "3px solid transparent",
       }}
     >
-      <div style={{ width: 22, textAlign: "center", fontSize: 13, color: "var(--muted)" }}>{rank}</div>
+      <div style={{ width: 22, textAlign: "center", fontSize: "var(--fs-sm)", color: "var(--muted)" }}>{rank}</div>
       <PortraitPair names={team.name.split(" + ")} size={32} />
       <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 15, fontWeight: highlight ? 700 : 400 }}>
+        <div style={{ fontSize: "var(--fs-body)", fontWeight: highlight ? 700 : 400 }}>
           {team.name}
-          {highlight && <span style={{ marginLeft: 8, fontSize: 11, color: "var(--accent)" }}>YOU</span>}
+          {highlight && <span style={{ marginLeft: 8, fontSize: "var(--fs-2xs)", color: "var(--accent)" }}>YOU</span>}
         </div>
-        <div style={{ fontSize: 13 }}>♥ {team.hearts_cached}</div>
+        <div style={{ fontSize: "var(--fs-sm)" }}>♥ {team.hearts_cached}</div>
       </div>
     </div>
   );
@@ -942,14 +942,14 @@ function NameSelectStep({
   const filtered = players.filter((p) => p.display_name.toLowerCase().includes(query.toLowerCase()));
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-      <h2 style={{ fontWeight: 400, fontSize: 24, marginBottom: 16 }}>Select your name</h2>
+      <h2 style={{ fontWeight: 400, fontSize: "var(--fs-h4)", marginBottom: 16 }}>Select your name</h2>
       <input type="text" placeholder="Search roster…" value={query} onChange={(e) => setQuery(e.target.value)} />
       <div style={{ marginTop: 8, flex: 1, overflowY: "auto" }}>
         {filtered.map((p) => (
           <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 0", borderBottom: "1px solid rgba(10,10,10,0.1)" }}>
             <Portrait name={p.display_name} size={36} />
             <div style={{ flex: 1 }}>{p.display_name}</div>
-            <button className="btn" style={{ width: "auto", minHeight: "auto", padding: "10px 18px", fontSize: 15 }} onClick={() => (p.claim_status === "available" ? onSelectAvailable(p) : onSelectClaimed(p))}>
+            <button className="btn" style={{ width: "auto", minHeight: "auto", padding: "10px 18px", fontSize: "var(--fs-body)" }} onClick={() => (p.claim_status === "available" ? onSelectAvailable(p) : onSelectClaimed(p))}>
               {p.claim_status === "available" ? "Select" : "Recover"}
             </button>
           </div>
@@ -1044,9 +1044,9 @@ function PairingLobby({
     <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, paddingBottom: 16, borderBottom: "1px solid rgba(10,10,10,0.15)", marginBottom: 20 }}>
         <Portrait name={me.display_name} photoUrl={selfie} size={40} />
-        <div style={{ fontSize: 16 }}>{me.display_name}</div>
+        <div style={{ fontSize: "var(--fs-body)" }}>{me.display_name}</div>
       </div>
-      <h2 style={{ fontWeight: 400, fontSize: 24, textAlign: "center", marginBottom: 12 }}>Pair up</h2>
+      <h2 style={{ fontWeight: 400, fontSize: "var(--fs-h4)", textAlign: "center", marginBottom: 12 }}>Pair up</h2>
       <p className="label" style={{ textAlign: "left", marginTop: 16 }}>
         Available
       </p>
@@ -1056,7 +1056,7 @@ function PairingLobby({
           <div style={{ flex: 1 }}>{p.display_name}</div>
           <button
             className="btn"
-            style={{ width: "auto", minHeight: "auto", padding: "10px 18px", fontSize: 15 }}
+            style={{ width: "auto", minHeight: "auto", padding: "10px 18px", fontSize: "var(--fs-body)" }}
             disabled={pending}
             onClick={async () => {
               setPending(true);
@@ -1103,7 +1103,7 @@ function IncomingInviteScreen({
         <div className="pop-in">
           <Portrait name={fromPlayer.display_name} photoUrl={photoUrl} size={96} />
         </div>
-        <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 32, textAlign: "center" }}>
+        <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "var(--fs-h2)", textAlign: "center" }}>
           {fromPlayer.display_name}
         </h2>
       </div>
@@ -1144,10 +1144,10 @@ function OutgoingInviteScreen({
         <div className="pulse-accent">
           <Portrait name={toPlayer.display_name} photoUrl={photoUrl} size={96} />
         </div>
-        <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 32, textAlign: "center" }}>
+        <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "var(--fs-h2)", textAlign: "center" }}>
           {toPlayer.display_name}
         </h2>
-        <p style={{ fontSize: 15, color: "var(--muted)", textAlign: "center" }}>Waiting for confirmation…</p>
+        <p style={{ fontSize: "var(--fs-body)", color: "var(--muted)", textAlign: "center" }}>Waiting for confirmation…</p>
       </div>
       <button className="btn btn-outline" style={{ width: "100%" }} disabled={pending} onClick={onCancel}>
         Cancel invite
@@ -1160,11 +1160,11 @@ export function PostPairingScreen({ onContinue }: { onContinue: () => void }) {
   return (
     <Stack>
       <p className="bracket-title">【 GAME START 】</p>
-      <p style={{ fontSize: 17, lineHeight: 1.6, textAlign: "center", maxWidth: 320 }}>
+      <p style={{ fontSize: "var(--fs-body-lg)", lineHeight: 1.6, textAlign: "center", maxWidth: 320 }}>
         Your team starts with <strong style={{ color: "var(--accent)" }}>5 hearts</strong>. Lose them all and
         you&apos;re out.
       </p>
-      <p style={{ fontSize: 14, lineHeight: 1.6, textAlign: "center", color: "var(--muted)", maxWidth: 320 }}>
+      <p style={{ fontSize: "var(--fs-md)", lineHeight: 1.6, textAlign: "center", color: "var(--muted)", maxWidth: 320 }}>
         Either of you can play from your own phone — no need to share one.
       </p>
       <button className="btn" style={{ width: "100%" }} onClick={onContinue}>
@@ -1191,7 +1191,7 @@ function AddThirdPlayer({
 
   if (!expanded) {
     return (
-      <button className="btn-outline" style={{ width: "100%", marginBottom: 20, fontSize: 14 }} onClick={() => setExpanded(true)}>
+      <button className="btn-outline" style={{ width: "100%", marginBottom: 20, fontSize: "var(--fs-md)" }} onClick={() => setExpanded(true)}>
         + Add a 3rd player
       </button>
     );
@@ -1205,21 +1205,21 @@ function AddThirdPlayer({
         </p>
         <button
           className="btn-outline"
-          style={{ width: 32, height: 32, minHeight: 32, padding: 0, border: "1.6px solid var(--line)" }}
+          style={{ width: 44, height: 44, minHeight: 44, padding: 0, border: "1.6px solid var(--line)" }}
           aria-label="Close"
           onClick={() => setExpanded(false)}
         >
           ✕
         </button>
       </div>
-      {available.length === 0 && <p style={{ color: "var(--muted)", fontSize: 14 }}>No unpaired players available.</p>}
+      {available.length === 0 && <p style={{ color: "var(--muted)", fontSize: "var(--fs-md)" }}>No unpaired players available.</p>}
       {available.map((p) => (
         <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 0" }}>
           <Portrait name={p.display_name} size={32} />
           <div style={{ flex: 1 }}>{p.display_name}</div>
           <button
             className="btn"
-            style={{ width: "auto", minHeight: "auto", padding: "8px 16px", fontSize: 14 }}
+            style={{ width: "auto", minHeight: "auto", padding: "8px 16px", fontSize: "var(--fs-md)" }}
             disabled={pendingId === p.id}
             onClick={async () => {
               setPendingId(p.id);
@@ -1315,7 +1315,7 @@ export function ShareStealReveal({
       )}
       {revealed && outcome && (
         <div className="pop-in" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 20, width: "100%" }}>
-          <p style={{ fontSize: 22, fontWeight: 500, lineHeight: 1.5, textAlign: "center", maxWidth: 320 }}>{outcome.copyForA}</p>
+          <p style={{ fontSize: "var(--fs-h4)", fontWeight: 500, lineHeight: 1.5, textAlign: "center", maxWidth: 320 }}>{outcome.copyForA}</p>
           <button className="btn" style={{ width: "100%" }} onClick={onDismiss}>
             Next game
           </button>
@@ -1346,12 +1346,12 @@ function RevealColumn({
       </p>
       {choice !== undefined && delta !== undefined && (
         <div className="pop-in" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-          <div style={{ fontSize: 20, fontWeight: 700, color: delta > 0 ? "var(--ok)" : delta < 0 ? "var(--accent)" : "var(--fg)" }}>
+          <div style={{ fontSize: "var(--fs-badge)", fontWeight: 700, color: delta > 0 ? "var(--ok)" : delta < 0 ? "var(--accent)" : "var(--fg)" }}>
             ♥ {delta > 0 ? `+${delta}` : delta}
           </div>
           <div
             style={{
-              fontSize: 14,
+              fontSize: "var(--fs-md)",
               fontWeight: 600,
               letterSpacing: "0.06em",
               border: "2px solid var(--line)",
@@ -1411,10 +1411,10 @@ function Round1Flow({
     content = (
       <Stack>
         <p className="label">4 of hearts</p>
-        <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 26, textAlign: "center" }}>
+        <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "var(--fs-h3)", textAlign: "center" }}>
           Share or Steal.
         </h2>
-        <p style={{ fontSize: 17, lineHeight: 1.7, textAlign: "center", maxWidth: 320 }}>{SHARE_STEAL_RULES_COPY}</p>
+        <p style={{ fontSize: "var(--fs-body-lg)", lineHeight: 1.7, textAlign: "center", maxWidth: 320 }}>{SHARE_STEAL_RULES_COPY}</p>
         <button className="btn" style={{ width: "100%" }} onClick={() => setRulesSeen(true)}>
           I&apos;m ready
         </button>
@@ -1431,7 +1431,7 @@ function Round1Flow({
             <div className="pop-in">
               <PortraitPair names={opponentTeam.name.split(" + ")} photos={opponentPhotos} size={104} />
             </div>
-            <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 28, textAlign: "center" }}>
+            <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "var(--fs-h3)", textAlign: "center" }}>
               {opponentTeam.name}
             </h2>
           </>
@@ -1441,7 +1441,7 @@ function Round1Flow({
             I&apos;m ready
           </button>
         ) : (
-          <p style={{ color: "var(--muted)", fontSize: 14 }}>Waiting for {opponentTeam?.name ?? "opponents"} to be ready…</p>
+          <p style={{ color: "var(--muted)", fontSize: "var(--fs-md)" }}>Waiting for {opponentTeam?.name ?? "opponents"} to be ready…</p>
         )}
       </Stack>
     );
@@ -1455,7 +1455,7 @@ function Round1Flow({
       <Stack>
         <p className="label">{mySubmitted ? "Choice locked in" : "Select your action"}</p>
         {mySubmitted && (
-          <p style={{ fontSize: 15, color: "var(--muted)", textAlign: "center" }}>
+          <p style={{ fontSize: "var(--fs-body)", color: "var(--muted)", textAlign: "center" }}>
             Your pair already chose — waiting for the other team.
           </p>
         )}
@@ -1506,7 +1506,7 @@ function Round1Flow({
     content = (
       <Stack>
         <p className="label">Result</p>
-        <p style={{ fontSize: 18, textAlign: "center" }}>The match has been resolved — check your heart total above.</p>
+        <p style={{ fontSize: "var(--fs-body-lg)", textAlign: "center" }}>The match has been resolved — check your heart total above.</p>
       </Stack>
     );
   }
@@ -1517,7 +1517,7 @@ function Round1Flow({
       {rulesSeen && (
         <button
           className="btn-outline"
-          style={{ width: "100%", marginTop: 12, fontSize: 13, padding: "10px 16px", minHeight: "auto" }}
+          style={{ width: "100%", marginTop: 12, fontSize: "var(--fs-sm)", padding: "10px 16px", minHeight: "auto" }}
           onClick={() => setRulesModalOpen(true)}
         >
           View Rules
@@ -1533,12 +1533,12 @@ function RulesModal({ onClose }: { onClose: () => void }) {
     <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.55)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 50 }}>
       <div style={{ background: "var(--bg)", width: "100%", maxHeight: "85vh", overflowY: "auto", padding: 22 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-          <h2 style={{ fontWeight: 400, fontSize: 22 }}>Share or Steal — Rules</h2>
-          <button className="btn-outline" style={{ width: 36, height: 36, border: "1.6px solid var(--line)" }} onClick={onClose}>
+          <h2 style={{ fontWeight: 400, fontSize: "var(--fs-h4)" }}>Share or Steal — Rules</h2>
+          <button className="btn-outline" style={{ width: 44, height: 44, border: "1.6px solid var(--line)" }} onClick={onClose}>
             ✕
           </button>
         </div>
-        <p style={{ fontSize: 17, lineHeight: 1.7 }}>{SHARE_STEAL_RULES_COPY}</p>
+        <p style={{ fontSize: "var(--fs-body-lg)", lineHeight: 1.7 }}>{SHARE_STEAL_RULES_COPY}</p>
       </div>
     </div>
   );
@@ -1549,11 +1549,11 @@ function CheckpointWait({ label, personName, direction }: { label: string; perso
     <Stack>
       <p className="label">{label}</p>
       <div style={{ border: "2px solid var(--line)", padding: "26px 20px", width: "100%" }}>
-        <p style={{ fontSize: 19, textAlign: "center", fontWeight: 600, lineHeight: 1.5, letterSpacing: "0.01em" }}>
+        <p style={{ fontSize: "var(--fs-callout)", textAlign: "center", fontWeight: 600, lineHeight: 1.5, letterSpacing: "0.01em" }}>
           {direction}
         </p>
       </div>
-      <p style={{ fontSize: 15, textAlign: "center", color: "var(--muted)", lineHeight: 1.6, maxWidth: 300 }}>
+      <p style={{ fontSize: "var(--fs-body)", textAlign: "center", color: "var(--muted)", lineHeight: 1.6, maxWidth: 300 }}>
         {personName} is waiting there. Only they can let you continue.
       </p>
     </Stack>

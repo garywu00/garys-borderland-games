@@ -131,10 +131,20 @@ export function TriviaFlow({
     const urgent = secondsLeft <= 10;
     return (
       <div style={{ border: "2px solid var(--line)", padding: "26px 20px", marginBottom: 20, textAlign: "center" }}>
-        <p className={`label ${urgent ? "pulse-accent" : ""}`} style={urgent ? { color: "var(--accent)" } : undefined}>
-          {secondsLeft}s left
+        <p className="label" style={{ marginBottom: 2 }}>
+          Time left
         </p>
-        <p style={{ fontSize: 19, fontWeight: 600, lineHeight: 1.5, margin: "12px 0 18px" }}>{question?.prompt}</p>
+        {/* Deliberately much bigger/bolder than the ambient elapsed-game
+            timer up in the header — both are small mono countdowns, so at a
+            glance they read as the same thing unless this one is visually
+            unmistakable as "the one that costs you a heart." */}
+        <p
+          className={urgent ? "pulse-accent" : undefined}
+          style={{ fontFamily: "var(--font-mono)", fontWeight: 700, fontSize: "var(--fs-h1)", lineHeight: 1, color: urgent ? "var(--accent)" : "var(--fg)" }}
+        >
+          {secondsLeft}s
+        </p>
+        <p style={{ fontSize: "var(--fs-callout)", fontWeight: 600, lineHeight: 1.5, margin: "12px 0 18px" }}>{question?.prompt}</p>
         <input
           type="text"
           value={answer}
