@@ -25,6 +25,29 @@ export async function logAction(
 }
 
 /**
+ * Ajan presses this the moment a team physically walks up — mirrors
+ * markArrivedRound3's role at Michelle's checkpoint. Gives the dashboard a
+ * real arrived_at to sort the "ready to pair" queue by, oldest first,
+ * instead of an unordered list — matters once a burst of teams shows up at
+ * once and Ajan needs to work through them fairly.
+ */
+export async function markArrivedRound2(teamId: string) {
+  const manager = await requireManager();
+  const admin = createAdminClient();
+
+  const { data: team } = await admin.from("teams").select("status").eq("id", teamId).maybeSingle();
+  if (!team || team.status !== "round2") return { ok: false as const, reason: "not_found" as const };
+
+  const { error } = await admin
+    .from("checkpoint_arrivals")
+    .insert({ team_id: teamId, checkpoint: "clubs", confirmed_by: manager.id });
+  if (error) return { ok: false as const, reason: "already_arrived" as const };
+
+  await logAction(manager.id, manager.role, "Marked Round 2 arrival", teamId, null, { checkpoint: "clubs" });
+  return { ok: true as const };
+}
+
+/**
  * Ajan pairs two arrived Round 2 teams together up front — the challenge
  * itself (and how it resolves, pass or fail) happens afterward, on the
  * teams' own screens or via resolveClubsPass below.

@@ -15,6 +15,7 @@ import {
   startGameCountdown,
   cancelGameCountdown,
   expediteGameCountdown,
+  markArrivedRound2,
   updatePlayerName,
   deleteTeam,
   addPlayer,
@@ -26,7 +27,7 @@ import {
 import { overrideTriviaResult } from "@/lib/actions/trivia";
 import { getTriviaQuestion } from "@/lib/game/trivia";
 
-type Team = { id: string; name: string; hearts_cached: number; status: string; event_id: string };
+type Team = { id: string; name: string; hearts_cached: number; status: string; event_id: string; created_at: string };
 type Finalist = { team_id: string; slot: number };
 type Player = { id: string; display_name: string; claim_status: string };
 type Claim = { player_id: string; pin: string | null };
@@ -44,7 +45,7 @@ type TriviaAttempt = {
 };
 type Tab = "overview" | "trivia" | "hearts" | "clubs" | "diamonds" | "spades";
 type ClubsPairing = { id: string; team_a_id: string; team_b_id: string | null; status: string };
-type CheckpointArrival = { team_id: string; checkpoint: string };
+type CheckpointArrival = { team_id: string; checkpoint: string; arrived_at: string };
 type Matchup = { id: string; team_a_id: string; team_b_id: string; status: string };
 
 const ROUND_TABS: { id: Tab; label: string }[] = [
@@ -66,9 +67,19 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
   const [matchups, setMatchups] = useState<Matchup[]>([]);
   const [countdownStartedAt, setCountdownStartedAt] = useState<string | null>(null);
   const [diamondsArrivals, setDiamondsArrivals] = useState<CheckpointArrival[]>([]);
+  const [clubsArrivals, setClubsArrivals] = useState<CheckpointArrival[]>([]);
   const [toast, setToastMsg] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [connected, setConnected] = useState(true);
+  const [now, setNow] = useState(() => Date.now());
+
+  // Coarse tick (not per-second) just to keep "waiting Xm" labels roughly
+  // current between data refreshes — this is an admin queue view, not a
+  // stopwatch, so 15s resolution is plenty.
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 15_000);
+    return () => clearInterval(interval);
+  }, []);
 
   function notify(msg: string) {
     setToastMsg(msg);
@@ -76,7 +87,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
   }
 
   const refresh = useCallback(async () => {
-    const { data } = await supabase.from("teams").select("id, name, hearts_cached, status, event_id");
+    const { data } = await supabase.from("teams").select("id, name, hearts_cached, status, event_id, created_at");
     setTeams(data ?? []);
     const { data: f } = await supabase.from("finalists").select("team_id, slot");
     setFinalists(f ?? []);
@@ -100,8 +111,10 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
       .select("id, team_a_id, team_b_id, status")
       .eq("status", "active");
     setClubsPairings(cp ?? []);
-    const { data: da } = await supabase.from("checkpoint_arrivals").select("team_id, checkpoint").eq("checkpoint", "diamonds");
+    const { data: da } = await supabase.from("checkpoint_arrivals").select("team_id, checkpoint, arrived_at").eq("checkpoint", "diamonds");
     setDiamondsArrivals(da ?? []);
+    const { data: ca } = await supabase.from("checkpoint_arrivals").select("team_id, checkpoint, arrived_at").eq("checkpoint", "clubs");
+    setClubsArrivals(ca ?? []);
     const { data: m } = await supabase.from("matchups").select("id, team_a_id, team_b_id, status").neq("status", "resolved");
     setMatchups(m ?? []);
     const { data: ev } = await supabase.from("events").select("countdown_started_at").eq("status", "active").limit(1).maybeSingle();
@@ -233,6 +246,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
         <HeartsView
           teams={teams.filter((t) => t.status === "round1")}
           matchups={matchups}
+          now={now}
           onGiveBye={async (id) => {
             const result = await giveByeRound1(id);
             notify(
@@ -250,6 +264,12 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
         <ClubsView
           teams={teams.filter((t) => t.status === "round2")}
           pairings={clubsPairings}
+          arrivals={clubsArrivals}
+          now={now}
+          onMarkArrived={async (id) => {
+            const result = await markArrivedRound2(id);
+            notify(result.ok ? "Marked arrived." : "Could not mark arrived.");
+          }}
           onPair={async (a, b) => {
             const result = await pairClubsTeams(a, b);
             notify(result.ok ? "Paired up." : "Could not pair — check both teams are still at Round 2.");
@@ -274,6 +294,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
         <MichelleReviewView
           teams={teams.filter((t) => t.status === "round3")}
           arrivals={diamondsArrivals}
+          now={now}
           onMarkArrived={async (id) => {
             const result = await markArrivedRound3(id);
             notify(result.ok ? "Marked arrived." : "Could not mark arrived.");
@@ -372,13 +393,30 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
   );
 }
 
-function TeamRow({ team, right }: { team: Team; right?: React.ReactNode }) {
+/** Anything sitting in a "waiting" queue this long is unusual — matchmaking
+ * is normally instant, so a wait past this signals an admin should look. */
+const WAIT_WARNING_MS = 3 * 60 * 1000;
+
+function formatWait(sinceIso: string, now: number): string {
+  const minutes = Math.floor(Math.max(0, now - new Date(sinceIso).getTime()) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes === 1) return "waiting 1 min";
+  return `waiting ${minutes} min`;
+}
+
+function TeamRow({ team, right, waitingSince, now }: { team: Team; right?: React.ReactNode; waitingSince?: string; now?: number }) {
+  const waitMs = waitingSince && now ? now - new Date(waitingSince).getTime() : 0;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 14, padding: 14, border: "1.6px solid var(--line)", marginBottom: 10 }}>
       <PortraitPair names={team.name.split(" + ")} size={36} />
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: 17 }}>{team.name}</div>
         <div style={{ fontSize: 14 }}>♥ {team.hearts_cached}</div>
+        {waitingSince && now && (
+          <div style={{ fontSize: 12, marginTop: 2, color: waitMs > WAIT_WARNING_MS ? "var(--accent)" : "var(--muted)" }}>
+            {formatWait(waitingSince, now)}
+          </div>
+        )}
       </div>
       {right}
     </div>
@@ -389,20 +427,23 @@ function HeartsView({
   teams,
   matchups,
   onGiveBye,
+  now,
 }: {
   teams: Team[];
   matchups: Matchup[];
   onGiveBye: (id: string) => void;
+  now: number;
 }) {
   const busyTeamIds = new Set(matchups.flatMap((m) => [m.team_a_id, m.team_b_id]));
-  const unmatched = teams.filter((t) => !busyTeamIds.has(t.id));
+  const unmatched = teams.filter((t) => !busyTeamIds.has(t.id)).sort((a, b) => a.created_at.localeCompare(b.created_at));
 
   return (
     <div>
       <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, textAlign: "center", marginBottom: 16 }}>4 of Hearts — Round 1</h2>
       <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 16 }}>
         Pairs are matched automatically, first-come-first-served, the moment a second pair is ready. A team only
-        shows up below once it's the odd one out with nobody left to match against.
+        shows up below once it's the odd one out with nobody left to match against — normally for a few seconds at
+        most, so a long wait here is worth a look.
       </p>
       <p className="label">Waiting for an opponent ({unmatched.length})</p>
       {unmatched.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>Every pair currently in Round 1 has an opponent.</p>}
@@ -410,6 +451,8 @@ function HeartsView({
         <TeamRow
           key={t.id}
           team={t}
+          waitingSince={t.created_at}
+          now={now}
           right={
             <button
               className="btn-outline"
@@ -432,34 +475,63 @@ function HeartsView({
 function ClubsView({
   teams,
   pairings,
+  arrivals,
+  onMarkArrived,
   onPair,
   onSolo,
   onMarkPass,
   onGiveBye,
   onAdjust,
+  now,
 }: {
   teams: Team[];
   pairings: ClubsPairing[];
+  arrivals: CheckpointArrival[];
+  onMarkArrived: (id: string) => void;
   onPair: (a: string, b: string) => void;
   onSolo: (teamId: string) => void;
   onMarkPass: (pairingId: string) => void;
   onGiveBye: (id: string) => void;
   onAdjust: (id: string, delta: number) => void;
+  now: number;
 }) {
   const [pairingTeam, setPairingTeam] = useState<Team | null>(null);
   const pairedTeamIds = new Set(pairings.flatMap((p) => [p.team_a_id, p.team_b_id]));
   const unpaired = teams.filter((t) => !pairedTeamIds.has(t.id));
+  const arrivedAtById = new Map(arrivals.map((a) => [a.team_id, a.arrived_at]));
+  const notArrived = unpaired.filter((t) => !arrivedAtById.has(t.id));
+  const arrived = unpaired
+    .filter((t) => arrivedAtById.has(t.id))
+    .sort((a, b) => arrivedAtById.get(a.id)!.localeCompare(arrivedAtById.get(b.id)!));
 
   return (
     <div>
       <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, textAlign: "center", marginBottom: 16 }}>8 of Clubs Game</h2>
 
-      <p className="label">Unpaired teams ({unpaired.length})</p>
-      {unpaired.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>No unpaired teams at the Clubs checkpoint.</p>}
-      {unpaired.map((t) => (
+      <p className="label">Not yet arrived ({notArrived.length})</p>
+      {notArrived.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>Every team here has checked in.</p>}
+      {notArrived.map((t) => (
         <TeamRow
           key={t.id}
           team={t}
+          right={
+            <button className="btn" style={{ width: "auto", minHeight: "auto", padding: "10px 16px", fontSize: 14 }} onClick={() => onMarkArrived(t.id)}>
+              Mark arrived
+            </button>
+          }
+        />
+      ))}
+
+      <p className="label" style={{ marginTop: 20 }}>
+        Arrived — ready to pair ({arrived.length})
+      </p>
+      {arrived.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>No teams checked in yet.</p>}
+      {arrived.map((t) => (
+        <TeamRow
+          key={t.id}
+          team={t}
+          waitingSince={arrivedAtById.get(t.id)}
+          now={now}
           right={
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <button
@@ -531,7 +603,7 @@ function ClubsView({
 
       {pairingTeam && (
         <PairTeamsModal
-          teams={unpaired}
+          teams={arrived}
           selectedTeam={pairingTeam}
           onClose={() => setPairingTeam(null)}
           onConfirm={(otherId) => {
@@ -629,16 +701,20 @@ function MichelleReviewView({
   onMarkArrived,
   onPass,
   onAdjust,
+  now,
 }: {
   teams: Team[];
   arrivals: CheckpointArrival[];
   onMarkArrived: (id: string) => void;
   onPass: (id: string) => void;
   onAdjust: (id: string, delta: number) => void;
+  now: number;
 }) {
-  const arrivedTeamIds = new Set(arrivals.map((a) => a.team_id));
-  const notArrived = teams.filter((t) => !arrivedTeamIds.has(t.id));
-  const arrived = teams.filter((t) => arrivedTeamIds.has(t.id));
+  const arrivedAtById = new Map(arrivals.map((a) => [a.team_id, a.arrived_at]));
+  const notArrived = teams.filter((t) => !arrivedAtById.has(t.id));
+  const arrived = teams
+    .filter((t) => arrivedAtById.has(t.id))
+    .sort((a, b) => arrivedAtById.get(a.id)!.localeCompare(arrivedAtById.get(b.id)!));
 
   return (
     <div>
@@ -678,6 +754,8 @@ function MichelleReviewView({
         <TeamRow
           key={t.id}
           team={t}
+          waitingSince={arrivedAtById.get(t.id)}
+          now={now}
           right={
             <button className="btn" style={{ width: "auto", minHeight: "auto", padding: "10px 16px", fontSize: 14 }} onClick={() => onPass(t.id)}>
               Pass — seen it

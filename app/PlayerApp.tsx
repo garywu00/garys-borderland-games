@@ -639,26 +639,52 @@ export function PlayerApp({ eventId }: { eventId: string }) {
         </TriviaFlow>
       )}
       {team.status === "eliminated" && (
-        <div className="dramatic-panel">
-          <p className="label flicker-in">Your hearts are gone</p>
-          <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: 34, textAlign: "center" }}>
-            You&apos;re out of hearts — you&apos;re eliminated.
-          </h2>
-          <p className="fade-up" style={{ fontSize: 17, textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "var(--muted)" }}>
-            Head to Focal Point Brewery — the others will find you there.
-          </p>
-        </div>
+        <>
+          <div className="dramatic-panel">
+            <p className="label flicker-in">Your hearts are gone</p>
+            <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: 34, textAlign: "center" }}>
+              You&apos;re out of hearts — you&apos;re eliminated.
+            </h2>
+            <p className="fade-up" style={{ fontSize: 17, textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "var(--muted)" }}>
+              Head to Focal Point Brewery — the others will find you there.
+            </p>
+            {collectedCards.length > 0 && (
+              <div className="fade-up" style={{ display: "flex", gap: 12, marginTop: 4 }}>
+                {collectedCards.map((c) => (
+                  <CardDisplay key={c} code={c} width={90} />
+                ))}
+              </div>
+            )}
+          </div>
+          <div style={{ marginTop: 24 }}>
+            <p className="label">Standings</p>
+            <TeamLeaderboardList myTeamId={team.id} />
+          </div>
+        </>
       )}
       {team.status === "non_finalist" && (
-        <div className="dramatic-panel">
-          <p className="label flicker-in">Game over</p>
-          <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: 34, textAlign: "center" }}>
-            Three pairs made it through. You weren&apos;t one of them.
-          </h2>
-          <p className="fade-up" style={{ fontSize: 17, textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "var(--muted)" }}>
-            {NON_FINALIST_MESSAGE}
-          </p>
-        </div>
+        <>
+          <div className="dramatic-panel">
+            <p className="label flicker-in">Game over</p>
+            <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: 34, textAlign: "center" }}>
+              Three pairs made it through. You weren&apos;t one of them.
+            </h2>
+            <p className="fade-up" style={{ fontSize: 17, textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "var(--muted)" }}>
+              {NON_FINALIST_MESSAGE}
+            </p>
+            {collectedCards.length > 0 && (
+              <div className="fade-up" style={{ display: "flex", gap: 12, marginTop: 4 }}>
+                {collectedCards.map((c) => (
+                  <CardDisplay key={c} code={c} width={90} />
+                ))}
+              </div>
+            )}
+          </div>
+          <div style={{ marginTop: 24 }}>
+            <p className="label">Standings</p>
+            <TeamLeaderboardList myTeamId={team.id} />
+          </div>
+        </>
       )}
       {team.status === "finalist" && isWinner && (
         <div className="dramatic-panel">
@@ -812,20 +838,49 @@ function PlayerHeader({ team, photos }: { team: Team; photos: (string | null)[] 
   );
 }
 
-function LeaderboardModal({ myTeamId, onClose }: { myTeamId: string; onClose: () => void }) {
+// Kept live (not a one-time fetch) since this now also renders embedded on
+// the eliminated/non-finalist screens, where a team can sit for the rest of
+// the event watching other teams' progress rather than just a static "you
+// lost" message.
+function useAllTeamsLeaderboard(): Team[] {
   const [teams, setTeams] = useState<Team[]>([]);
   useEffect(() => {
     const supabase = createClient();
-    supabase
-      .from("teams")
-      .select("id, name, hearts_cached, status")
-      .then(({ data }) => setTeams(data ?? []));
+    let active = true;
+    const fetchTeams = () => {
+      supabase
+        .from("teams")
+        .select("id, name, hearts_cached, status")
+        .then(({ data }) => {
+          if (active) setTeams(data ?? []);
+        });
+    };
+    fetchTeams();
+    const channel = supabase
+      .channel("leaderboard")
+      .on("postgres_changes", { event: "*", schema: "public", table: "teams" }, fetchTeams)
+      .subscribe();
+    return () => {
+      active = false;
+      supabase.removeChannel(channel);
+    };
   }, []);
+  return teams;
+}
 
+function TeamLeaderboardList({ myTeamId }: { myTeamId: string }) {
+  const teams = useAllTeamsLeaderboard();
   const sorted = [...teams].sort((a, b) => b.hearts_cached - a.hearts_cached);
-  const top3 = sorted.slice(0, 3);
-  const rest = sorted.slice(3);
+  return (
+    <>
+      {sorted.map((t, i) => (
+        <LeaderboardRow key={t.id} rank={i + 1} team={t} highlight={t.id === myTeamId} />
+      ))}
+    </>
+  );
+}
 
+function LeaderboardModal({ myTeamId, onClose }: { myTeamId: string; onClose: () => void }) {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.55)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 50 }}>
       <div style={{ background: "var(--bg)", width: "100%", maxHeight: "85vh", overflowY: "auto", padding: 22 }}>
@@ -835,26 +890,13 @@ function LeaderboardModal({ myTeamId, onClose }: { myTeamId: string; onClose: ()
             ✕
           </button>
         </div>
-        <p className="label">Top 3</p>
-        {top3.map((t) => (
-          <LeaderboardRow key={t.id} team={t} highlight={t.id === myTeamId} />
-        ))}
-        {rest.length > 0 && (
-          <>
-            <p className="label" style={{ marginTop: 20 }}>
-              Remaining pairs
-            </p>
-            {rest.map((t) => (
-              <LeaderboardRow key={t.id} team={t} highlight={t.id === myTeamId} />
-            ))}
-          </>
-        )}
+        <TeamLeaderboardList myTeamId={myTeamId} />
       </div>
     </div>
   );
 }
 
-function LeaderboardRow({ team, highlight }: { team: Team; highlight: boolean }) {
+export function LeaderboardRow({ team, highlight, rank }: { team: Team; highlight: boolean; rank: number }) {
   return (
     <div
       style={{
@@ -866,6 +908,7 @@ function LeaderboardRow({ team, highlight }: { team: Team; highlight: boolean })
         borderLeft: highlight ? "3px solid var(--accent)" : "3px solid transparent",
       }}
     >
+      <div style={{ width: 22, textAlign: "center", fontSize: 13, color: "var(--muted)" }}>{rank}</div>
       <PortraitPair names={team.name.split(" + ")} size={32} />
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: 15, fontWeight: highlight ? 700 : 400 }}>
