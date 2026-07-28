@@ -1438,15 +1438,16 @@ function Round1Flow({
   // Ephemeral, not persisted — a lightweight broadcast so a still-deciding
   // teammate's tap shows up on their partner's screen before either of them
   // hits Submit, instead of each device only ever reflecting its own local
-  // tap. The real, authoritative choice is still whatever gets submitted;
-  // this is purely "here's what my partner is currently leaning toward."
+  // tap. Scoped to the TEAM (not the matchup) so only your own teammate ever
+  // joins this channel — the matchup is shared with the opposing team, and
+  // broadcasting on a matchup-scoped channel would leak your live pick to
+  // the pair you're facing off against before either side has submitted.
   useEffect(() => {
     if (!matchup || matchup.status !== "active") return;
     const supabase = createClient();
     const channel = supabase
-      .channel(`share-steal-draft-${matchup.id}`)
+      .channel(`share-steal-draft-team-${teamId}`)
       .on("broadcast", { event: "draft-choice" }, ({ payload }) => {
-        if (payload?.teamId === teamId) return;
         if (payload?.choice === "share" || payload?.choice === "steal") setTeammateDraftChoice(payload.choice);
       })
       .subscribe();
@@ -1461,6 +1462,31 @@ function Round1Flow({
     if (!myChoice) return;
     draftChannelRef.current?.send({ type: "broadcast", event: "draft-choice", payload: { teamId, choice: myChoice } });
   }, [myChoice, teamId]);
+
+  // Ticks only during the 60-second selection window (matchup.deadline_at,
+  // set server-side the instant both teams ready up) — was tracked all
+  // along but never actually rendered anywhere.
+  const [now, setNow] = useState(() => Date.now());
+  const autoSubmittedRef = useRef(false);
+  useEffect(() => {
+    if (!matchup || matchup.status !== "active") return;
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [matchup?.id, matchup?.status]);
+
+  const mySubmitted = mySubmittedChoice !== null;
+  const deadlineMs = matchup?.status === "active" && matchup.deadline_at ? new Date(matchup.deadline_at).getTime() : null;
+  const remainingMs = deadlineMs !== null ? Math.max(0, deadlineMs - now) : null;
+  const secondsLeft = remainingMs !== null ? Math.ceil(remainingMs / 1000) : null;
+
+  // Auto-submit at 0, mirroring TriviaFlow's timeout handling — honors
+  // whatever this team was leaning toward (my own tap or my teammate's live
+  // one), falling back to Share only if nobody had picked anything at all.
+  useEffect(() => {
+    if (!matchup || mySubmitted || remainingMs === null || remainingMs > 0 || autoSubmittedRef.current) return;
+    autoSubmittedRef.current = true;
+    submitShareSteal(matchup.id, teamId, myChoice ?? teammateDraftChoice ?? "share", true).catch(() => {});
+  }, [matchup, mySubmitted, remainingMs, teamId, myChoice, teammateDraftChoice]);
 
   let content: React.ReactNode;
 
@@ -1513,8 +1539,12 @@ function Round1Flow({
     // mySubmittedChoice is server-derived — the instant either partner
     // submits, both devices reflect it via realtime, instead of the other
     // partner only finding out by trying to submit and getting rejected.
-    const mySubmitted = mySubmittedChoice !== null;
-    const effectiveChoice = mySubmittedChoice ?? myChoice;
+    // teammateDraftChoice folds in the same way pre-submit: it only ever
+    // comes from your own teammate (see the team-scoped broadcast above),
+    // so there's no separate "hint" state to call out — it just reads as
+    // your team's current pick, exactly like your own tap would.
+    const effectiveChoice = mySubmittedChoice ?? myChoice ?? teammateDraftChoice;
+    const urgent = secondsLeft !== null && secondsLeft <= 10;
     content = (
       <Stack>
         {opponentTeam && (
@@ -1528,40 +1558,45 @@ function Round1Flow({
             </div>
           </div>
         )}
+        {!mySubmitted && secondsLeft !== null && (
+          <div style={{ textAlign: "center" }}>
+            <p className="label" style={{ marginBottom: 2 }}>
+              Time left
+            </p>
+            <p
+              className={urgent ? "pulse-accent" : undefined}
+              style={{ fontFamily: "var(--font-mono)", fontWeight: 700, fontSize: "var(--fs-h1)", lineHeight: 1, color: urgent ? "var(--accent)" : "var(--fg)" }}
+            >
+              {secondsLeft}s
+            </p>
+          </div>
+        )}
         <p className="label">{mySubmitted ? "Choice locked in" : "Select your action"}</p>
         {mySubmitted && (
           <p style={{ fontSize: "var(--fs-body)", color: "var(--muted)", textAlign: "center" }}>
             Your pair already chose — waiting for the other team.
           </p>
         )}
-        {!mySubmitted && !myChoice && teammateDraftChoice && (
-          <p style={{ fontSize: "var(--fs-body)", color: "var(--muted)", textAlign: "center" }}>
-            Your partner is currently leaning: {teammateDraftChoice === "share" ? "Share" : "Steal"}
-          </p>
-        )}
         <div style={{ display: "flex", gap: 16, width: "100%" }}>
-          {(["share", "steal"] as const).map((choice) => {
-            const isTeammateHint = !mySubmitted && !myChoice && teammateDraftChoice === choice;
-            return (
-              <button
-                key={choice}
-                className="btn-outline"
-                aria-pressed={effectiveChoice === choice}
-                disabled={mySubmitted}
-                style={{
-                  flex: 1,
-                  border: isTeammateHint ? "2px solid var(--accent)" : "2px solid var(--line)",
-                  padding: "36px 12px",
-                  background: effectiveChoice === choice ? "var(--btn-bg)" : "transparent",
-                  color: effectiveChoice === choice ? "var(--btn-fg)" : "var(--fg)",
-                  cursor: mySubmitted ? "not-allowed" : "pointer",
-                }}
-                onClick={() => setMyChoice(choice)}
-              >
-                {choice === "share" ? "Share" : "Steal"}
-              </button>
-            );
-          })}
+          {(["share", "steal"] as const).map((choice) => (
+            <button
+              key={choice}
+              className="btn-outline"
+              aria-pressed={effectiveChoice === choice}
+              disabled={mySubmitted}
+              style={{
+                flex: 1,
+                border: "2px solid var(--line)",
+                padding: "36px 12px",
+                background: effectiveChoice === choice ? "var(--btn-bg)" : "transparent",
+                color: effectiveChoice === choice ? "var(--btn-fg)" : "var(--fg)",
+                cursor: mySubmitted ? "not-allowed" : "pointer",
+              }}
+              onClick={() => setMyChoice(choice)}
+            >
+              {choice === "share" ? "Share" : "Steal"}
+            </button>
+          ))}
         </div>
         {!mySubmitted && (
           <button
