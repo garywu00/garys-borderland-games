@@ -13,6 +13,7 @@ import { GameStartCountdown, GameNotStartedScreen } from "@/components/GameStart
 import { CardDisplay, ProgressTrack } from "@/components/CardDisplay";
 import {
   CARD_META,
+  FINALIST_SLOTS,
   GAME_COUNTDOWN_DURATION_MS,
   NON_FINALIST_MESSAGE,
   resolveShareSteal,
@@ -667,7 +668,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
           <div className="dramatic-panel">
             <p className="label flicker-in">Game over</p>
             <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: "var(--fs-h1)", textAlign: "center" }}>
-              Three pairs made it through. You weren&apos;t one of them.
+              {FINALIST_SLOTS} pairs made it through. You weren&apos;t one of them.
             </h2>
             <p className="fade-up" style={{ fontSize: "var(--fs-body-lg)", textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "var(--muted)" }}>
               {NON_FINALIST_MESSAGE}
@@ -716,8 +717,8 @@ export function PlayerApp({ eventId }: { eventId: string }) {
             Finalist #{finalistSlot ?? "—"}
           </h2>
           <p className="fade-up" style={{ fontSize: "var(--fs-body-lg)", textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "var(--muted)" }}>
-            You&apos;re standing at Focal Point Brewery — one of only three pairs left. One final game decides
-            everything.
+            You&apos;re standing at Focal Point Brewery — one of only {FINALIST_SLOTS} pairs left. One final game
+            decides everything.
           </p>
           <div style={{ fontSize: "var(--fs-h4)" }}>♥ {team.hearts_cached} remaining</div>
           <div style={{ display: "flex", gap: 12, marginTop: 4 }}>

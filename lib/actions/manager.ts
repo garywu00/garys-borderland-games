@@ -3,7 +3,7 @@
 import { createAdminClient } from "@/lib/supabase/server";
 import { applyHeartDelta } from "@/lib/actions/hearts";
 import { requireManager } from "@/lib/actions/session";
-import { GAME_COUNTDOWN_DURATION_MS } from "@/lib/game/rules";
+import { FINALIST_SLOTS, GAME_COUNTDOWN_DURATION_MS } from "@/lib/game/rules";
 
 export async function logAction(
   actorId: string,
@@ -220,7 +220,7 @@ export async function confirmArrival(teamId: string) {
   const admin = createAdminClient();
 
   const { count } = await admin.from("finalists").select("id", { count: "exact", head: true });
-  if ((count ?? 0) >= 3) return { ok: false as const, reason: "slots_full" as const };
+  if ((count ?? 0) >= FINALIST_SLOTS) return { ok: false as const, reason: "slots_full" as const };
 
   const slot = (count ?? 0) + 1;
   const { data: team } = await admin.from("teams").select("hearts_cached, event_id").eq("id", teamId).single();
@@ -243,7 +243,7 @@ export async function confirmArrival(teamId: string) {
 
   await admin.from("teams").update({ status: "finalist" }).eq("id", teamId);
 
-  if (slot === 3) {
+  if (slot === FINALIST_SLOTS) {
     const { data: waiting } = await admin.from("teams").select("id").eq("status", "final_waiting");
     if (waiting?.length) {
       await admin
@@ -259,7 +259,7 @@ export async function confirmArrival(teamId: string) {
 
 /**
  * Undoes a mistaken arrival confirmation — frees the finalist slot and puts
- * the team back to awaiting confirmation. If this was the 3rd/final slot,
+ * the team back to awaiting confirmation. If this was the last slot,
  * also reopens the game for anyone who got auto-closed-out when it filled.
  */
 export async function undoFinalistConfirmation(teamId: string) {
@@ -281,7 +281,7 @@ export async function undoFinalistConfirmation(teamId: string) {
   await admin.from("checkpoint_arrivals").delete().eq("team_id", teamId).eq("checkpoint", "final");
   await admin.from("teams").update({ status: "final_waiting" }).eq("id", teamId);
 
-  if (finalist.slot === 3) {
+  if (finalist.slot === FINALIST_SLOTS) {
     await admin.from("teams").update({ status: "final_waiting" }).eq("status", "non_finalist");
   }
 

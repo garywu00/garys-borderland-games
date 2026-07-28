@@ -51,7 +51,9 @@ export const CARD_META = {
 
 export type CardCode = keyof typeof CARD_META;
 
-export const NON_FINALIST_MESSAGE = "The first 3 pairs have qualified. Head to Focal Point Brewery.";
+export const FINALIST_SLOTS = 6;
+
+export const NON_FINALIST_MESSAGE = `The first ${FINALIST_SLOTS} pairs have qualified. Head to Focal Point Brewery.`;
 
 export interface FinalistCandidate {
   teamId: string;

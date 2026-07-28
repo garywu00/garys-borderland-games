@@ -26,6 +26,7 @@ import {
 } from "@/lib/actions/manager";
 import { overrideTriviaResult } from "@/lib/actions/trivia";
 import { getTriviaQuestion } from "@/lib/game/trivia";
+import { FINALIST_SLOTS } from "@/lib/game/rules";
 
 type Team = { id: string; name: string; hearts_cached: number; status: string; event_id: string; created_at: string };
 type Finalist = { team_id: string; slot: number };
@@ -790,7 +791,9 @@ function SpadesView({
     <div>
       <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, textAlign: "center", marginBottom: 16 }}>Final Checkpoint — Round 4</h2>
 
-      <p className="label">Top 3 — Finalists ({finalists.length} / 3)</p>
+      <p className="label">
+        Top {FINALIST_SLOTS} — Finalists ({finalists.length} / {FINALIST_SLOTS})
+      </p>
       {finalistTeams.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>No finalists confirmed yet.</p>}
       {finalistTeams.map((f) => (
         <TeamRow
@@ -826,11 +829,11 @@ function SpadesView({
           right={
             <button
               className="btn"
-              disabled={finalists.length >= 3}
+              disabled={finalists.length >= FINALIST_SLOTS}
               style={{ width: "auto", minHeight: "auto", padding: "10px 16px", fontSize: 14 }}
               onClick={() => onConfirmArrival(t.id)}
             >
-              {finalists.length >= 3 ? "Slots full" : "Confirm arrival"}
+              {finalists.length >= FINALIST_SLOTS ? "Slots full" : "Confirm arrival"}
             </button>
           }
         />
