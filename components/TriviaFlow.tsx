@@ -5,6 +5,14 @@ import { createClient } from "@/lib/supabase/client";
 import { startTrivia, submitTriviaAnswer } from "@/lib/actions/trivia";
 import { getTriviaQuestion, TRIVIA_TIME_LIMIT_MS } from "@/lib/game/trivia";
 
+// Surfaces the actual failure instead of a generic "try again" — critical
+// while diagnosing live, so the message a player reads out loud is enough
+// to tell us what's actually wrong rather than another round of guessing.
+function errorMessage(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  return String(e);
+}
+
 type Attempt = {
   id: string;
   round_number: number;
@@ -118,9 +126,9 @@ export function TriviaFlow({
             try {
               const result = await startTrivia(teamId, roundNumber);
               if (result.ok) setAttempt(result.attempt);
-              else notify("Could not start — try again.");
-            } catch {
-              notify("Couldn't submit — check your connection and try again.");
+              else notify(`Could not start (${result.reason}) — try again.`);
+            } catch (e) {
+              notify(`Couldn't start: ${errorMessage(e)}`);
             } finally {
               setStarting(false);
             }

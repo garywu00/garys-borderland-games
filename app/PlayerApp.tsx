@@ -119,6 +119,15 @@ function saveRevealSeenMatchupId(matchupId: string) {
   }
 }
 
+// Surfaces the actual failure instead of a generic "try again" — critical
+// while diagnosing live, so the message a player reads out loud is enough
+// to tell us what's actually wrong (auth, network, stale deploy, etc.)
+// rather than another round of guessing blind.
+function errorMessage(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  return String(e);
+}
+
 export function PlayerApp({ eventId }: { eventId: string }) {
   const supabase = createClient();
   const [ready, setReadyState] = useState(false);
@@ -1722,10 +1731,10 @@ function Round1Flow({
                   setLocallySubmitted(true);
                   if (!result.ok) notify("Your partner already submitted for your team.");
                 } else {
-                  notify("Couldn't submit — try again.");
+                  notify(`Couldn't submit (${result.reason}) — try again.`);
                 }
-              } catch {
-                notify("Couldn't submit — check your connection and try again.");
+              } catch (e) {
+                notify(`Couldn't submit: ${errorMessage(e)}`);
               } finally {
                 setSubmitting(false);
               }
