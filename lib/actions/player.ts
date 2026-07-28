@@ -276,6 +276,54 @@ export async function submitShareSteal(
   return { ok: true as const };
 }
 
+/**
+ * Fallback for a matchup that's past its 60-second deadline but still
+ * missing a submission from one or both teams. The original design had
+ * each team's own client auto-submit its own default the instant its
+ * device's clock hit zero — which silently resolved nothing if that team's
+ * one open tab happened to be backgrounded/asleep at exactly the wrong
+ * moment, since nothing else was watching. This is callable by *any* member
+ * of *either* team in the matchup, or a manager, specifically so any of the
+ * up-to-four connected devices — or an admin, as a last resort — can be the
+ * one that notices the clock ran out and pushes it forward, rather than
+ * requiring the one specific missing team's own device to do it.
+ *
+ * Server-authoritative: only actually does anything once deadline_at has
+ * genuinely passed per the server clock, regardless of what the caller's
+ * local clock claims.
+ */
+export async function expireShareSteal(matchupId: string) {
+  const admin = createAdminClient();
+
+  const { data: matchup } = await admin
+    .from("matchups")
+    .select("id, team_a_id, team_b_id, status, deadline_at")
+    .eq("id", matchupId)
+    .maybeSingle();
+  if (!matchup) return { ok: false as const, reason: "not_found" as const };
+  if (matchup.status === "resolved") return { ok: true as const };
+  if (!matchup.deadline_at || new Date(matchup.deadline_at).getTime() > Date.now()) {
+    return { ok: false as const, reason: "not_expired" as const };
+  }
+
+  const authId = await requireAuthId();
+  const [memberA, memberB] = await Promise.all([requireTeamMember(matchup.team_a_id), requireTeamMember(matchup.team_b_id)]);
+  const { data: manager } = await admin.from("manager_profiles").select("id").eq("id", authId).maybeSingle();
+  if (!memberA.ok && !memberB.ok && !manager) return { ok: false as const, reason: "not_authorized" as const };
+
+  const { data: submissions } = await admin.from("share_steal_submissions").select("team_id").eq("matchup_id", matchupId);
+  const submittedTeamIds = new Set((submissions ?? []).map((s) => s.team_id));
+
+  for (const teamId of [matchup.team_a_id, matchup.team_b_id]) {
+    if (!submittedTeamIds.has(teamId)) {
+      await admin.from("share_steal_submissions").insert({ matchup_id: matchupId, team_id: teamId, choice: "share", is_timeout_default: true });
+    }
+  }
+
+  await resolveMatchup(matchupId);
+  return { ok: true as const };
+}
+
 async function resolveMatchup(matchupId: string) {
   const admin = createAdminClient();
 

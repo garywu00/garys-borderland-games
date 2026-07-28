@@ -26,6 +26,7 @@ import {
   giveByeRound2,
 } from "@/lib/actions/manager";
 import { overrideTriviaResult } from "@/lib/actions/trivia";
+import { expireShareSteal } from "@/lib/actions/player";
 import { getTriviaQuestion } from "@/lib/game/trivia";
 import { FINALIST_SLOTS, GAME_COUNTDOWN_DURATION_MS } from "@/lib/game/rules";
 
@@ -48,7 +49,7 @@ type TriviaAttempt = {
 type Tab = "overview" | "trivia" | "hearts" | "clubs" | "diamonds" | "spades";
 type ClubsPairing = { id: string; team_a_id: string; team_b_id: string | null; status: string };
 type CheckpointArrival = { team_id: string; checkpoint: string; arrived_at: string };
-type Matchup = { id: string; team_a_id: string; team_b_id: string; status: string };
+type Matchup = { id: string; team_a_id: string; team_b_id: string; status: string; deadline_at: string | null };
 
 const ROUND_TABS: { id: Tab; label: string }[] = [
   { id: "hearts", label: "1 · Hearts" },
@@ -119,7 +120,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
     setDiamondsArrivals(da ?? []);
     const { data: ca } = await supabase.from("checkpoint_arrivals").select("team_id, checkpoint, arrived_at").eq("checkpoint", "clubs");
     setClubsArrivals(ca ?? []);
-    const { data: m } = await supabase.from("matchups").select("id, team_a_id, team_b_id, status").neq("status", "resolved");
+    const { data: m } = await supabase.from("matchups").select("id, team_a_id, team_b_id, status, deadline_at").neq("status", "resolved");
     setMatchups(m ?? []);
     const { data: ev } = await supabase.from("events").select("countdown_started_at").eq("status", "active").limit(1).maybeSingle();
     setCountdownStartedAt(ev?.countdown_started_at ?? null);
@@ -269,6 +270,10 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
                   ? "This team already has an opponent — use the normal outcome instead."
                   : "Could not give bye.",
             );
+          }}
+          onForceResolve={async (matchupId) => {
+            const result = await expireShareSteal(matchupId);
+            notify(result.ok ? "Resolved." : "Could not resolve — window may not be up yet.");
           }}
         />
       )}
@@ -473,15 +478,19 @@ function HeartsView({
   teams,
   matchups,
   onGiveBye,
+  onForceResolve,
   now,
 }: {
   teams: Team[];
   matchups: Matchup[];
   onGiveBye: (id: string) => void;
+  onForceResolve: (matchupId: string) => void;
   now: number;
 }) {
   const busyTeamIds = new Set(matchups.flatMap((m) => [m.team_a_id, m.team_b_id]));
   const unmatched = teams.filter((t) => !busyTeamIds.has(t.id)).sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const deciding = matchups.filter((m) => m.status === "active");
+  const teamById = new Map(teams.map((t) => [t.id, t]));
 
   return (
     <div>
@@ -491,6 +500,35 @@ function HeartsView({
         shows up below once it's the odd one out with nobody left to match against — normally for a few seconds at
         most, so a long wait here is worth a look.
       </p>
+      {deciding.length > 0 && (
+        <>
+          <p className="label">Deciding Share/Steal ({deciding.length})</p>
+          {deciding.map((m) => {
+            const teamA = teamById.get(m.team_a_id);
+            const teamB = teamById.get(m.team_b_id);
+            const expired = m.deadline_at ? new Date(m.deadline_at).getTime() <= now : false;
+            if (!teamA || !teamB) return null;
+            return (
+              <div key={m.id} style={{ border: "1.6px solid var(--line)", padding: 14, marginBottom: 10 }}>
+                <TeamRow team={teamA} />
+                <TeamRow team={teamB} />
+                <button
+                  className="btn-outline"
+                  disabled={!expired}
+                  style={{ width: "100%", border: "1.6px solid var(--line)" }}
+                  onClick={() => {
+                    if (confirm(`Force-resolve ${teamA.name} vs ${teamB.name}? Defaults whichever side hasn't chosen yet to Share, then resolves immediately. Only use this if they're genuinely stuck past the 60s window.`)) {
+                      onForceResolve(m.id);
+                    }
+                  }}
+                >
+                  {expired ? "Force resolve (default missing side to Share)" : "Waiting on the 60s window…"}
+                </button>
+              </div>
+            );
+          })}
+        </>
+      )}
       <p className="label">Waiting for an opponent ({unmatched.length})</p>
       {unmatched.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>Every pair currently in Round 1 has an opponent.</p>}
       {unmatched.map((t) => (

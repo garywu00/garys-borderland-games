@@ -29,6 +29,7 @@ import {
   inviteThirdPlayer,
   setReady,
   submitShareSteal,
+  expireShareSteal,
 } from "@/lib/actions/player";
 import { uploadSelfie, getTeamPortraits, getPlayerPhotoUrls } from "@/lib/actions/photos";
 
@@ -352,7 +353,12 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     if (!matchup) return;
     const { data } = await supabase.from("share_steal_submissions").select("team_id, choice").eq("matchup_id", matchup.id);
     setShareStealSubmissions((data as ShareStealSubmission[] | null) ?? []);
-  }, [supabase, matchup]);
+    // Depends on matchup?.id (a stable primitive), not the whole matchup
+    // object — every refetch produces a new object reference even when
+    // nothing meaningful changed, which was churning this callback's
+    // identity and, with it, restarting the poll effect below on every
+    // single cycle instead of letting it run on a steady 3s cadence.
+  }, [supabase, matchup?.id]);
 
   useEffect(() => {
     refreshShareStealSubmissions();
@@ -364,12 +370,21 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   // a player staring at a stale "select your action" screen after their
   // partner already locked in a choice, or after the match actually
   // resolved. A cheap poll while the window is open catches what a missed
-  // realtime event would otherwise silently drop.
+  // realtime event would otherwise silently drop. It also sweeps expired
+  // matchups: if the deadline has passed and either side never submitted,
+  // any of the (up to) four connected devices — not just the specific team
+  // that's missing a submission — pushes it to resolution, since the
+  // original design (each team only auto-submitting its own default) went
+  // silently nowhere whenever that one team's device was backgrounded or
+  // closed right at the deadline.
   useEffect(() => {
     if (matchup?.status !== "active") return;
     const interval = setInterval(() => {
       refreshMatchup();
       refreshShareStealSubmissions();
+      if (matchup.deadline_at && new Date(matchup.deadline_at).getTime() <= Date.now()) {
+        expireShareSteal(matchup.id).catch(() => {});
+      }
     }, 3000);
     return () => clearInterval(interval);
   }, [matchup?.status, refreshMatchup, refreshShareStealSubmissions]);
