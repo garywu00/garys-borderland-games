@@ -7,39 +7,33 @@ function dataUrlToBuffer(dataUrl: string): Buffer {
   return Buffer.from(base64, "base64");
 }
 
-export async function uploadSelfie(playerId: string, dataUrl: string) {
+/**
+ * One photo per team (taken together at formation), not one per player —
+ * stored in the challenge_photos bucket (team-owned content) rather than
+ * selfies (which was per-player, private/player-owned).
+ */
+export async function uploadTeamPhoto(teamId: string, dataUrl: string) {
   const admin = createAdminClient();
-  const path = `${playerId}/${Date.now()}.jpg`;
+  const path = `${teamId}/${Date.now()}.jpg`;
   const { error: uploadErr } = await admin.storage
-    .from("selfies")
+    .from("challenge_photos")
     .upload(path, dataUrlToBuffer(dataUrl), { contentType: "image/jpeg", upsert: true });
   if (uploadErr) return { ok: false as const };
 
-  const { error } = await admin.from("players").update({ selfie_path: path }).eq("id", playerId);
+  const { error } = await admin.from("teams").update({ photo_path: path }).eq("id", teamId);
   if (error) return { ok: false as const };
   return { ok: true as const };
 }
 
 /**
- * Signed URLs for an arbitrary list of players' selfies — used to show
- * opponent/inviter photos, matching the app's existing fully-public team
- * name/hearts visibility model.
+ * Signed URL for a team's group photo — used for both a team's own header
+ * and to show the opponent/other team's photo, matching the app's existing
+ * fully-public team name/hearts visibility model.
  */
-export async function getPlayerPhotoUrls(playerIds: string[]): Promise<{ playerId: string; url: string | null }[]> {
-  if (!playerIds.length) return [];
+export async function getTeamPhotoUrl(teamId: string): Promise<string | null> {
   const admin = createAdminClient();
-  const { data: players } = await admin.from("players").select("id, selfie_path").in("id", playerIds);
-  return Promise.all(
-    (players ?? []).map(async (p) => {
-      if (!p.selfie_path) return { playerId: p.id, url: null };
-      const { data } = await admin.storage.from("selfies").createSignedUrl(p.selfie_path, 300);
-      return { playerId: p.id, url: data?.signedUrl ?? null };
-    }),
-  );
-}
-
-export async function getTeamPortraits(teamId: string): Promise<{ playerId: string; url: string | null }[]> {
-  const admin = createAdminClient();
-  const { data: members } = await admin.from("team_members").select("player_id").eq("team_id", teamId);
-  return getPlayerPhotoUrls((members ?? []).map((m) => m.player_id));
+  const { data: team } = await admin.from("teams").select("photo_path").eq("id", teamId).maybeSingle();
+  if (!team?.photo_path) return null;
+  const { data } = await admin.storage.from("challenge_photos").createSignedUrl(team.photo_path, 300);
+  return data?.signedUrl ?? null;
 }

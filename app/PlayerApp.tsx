@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Portrait, PortraitPair } from "@/components/Portrait";
+import { Portrait } from "@/components/Portrait";
 import { GameTimer } from "@/components/GameTimer";
 import { PhotoCapture } from "@/components/PhotoCapture";
 import { TriviaFlow } from "@/components/TriviaFlow";
@@ -21,21 +21,16 @@ import {
   type ShareStealChoice,
 } from "@/lib/game/rules";
 import {
-  claimPlayer,
-  sendInvite,
-  cancelInvite,
-  declineInvite,
-  acceptInvite,
-  inviteThirdPlayer,
+  formTeam,
+  recoverTeamWithPin,
   setReady,
   submitShareSteal,
   expireShareSteal,
 } from "@/lib/actions/player";
-import { uploadSelfie, getTeamPortraits, getPlayerPhotoUrls } from "@/lib/actions/photos";
+import { getTeamPhotoUrl } from "@/lib/actions/photos";
 
-type Player = { id: string; display_name: string; claim_status: string; selfie_path: string | null };
+type Player = { id: string; display_name: string };
 export type Team = { id: string; name: string; hearts_cached: number; status: string; active_controller_auth_id?: string | null };
-type Invite = { id: string; from_player_id: string; to_player_id: string; status: string };
 export type Matchup = {
   id: string;
   team_a_id: string;
@@ -55,16 +50,16 @@ const SHARE_STEAL_RULES_COPY =
 
 const LOCAL_KEY = "gbb_player_local";
 
-function loadLocal(): { playerId: string | null; teamId: string | null } {
-  if (typeof window === "undefined") return { playerId: null, teamId: null };
+function loadLocal(): { teamId: string | null } {
+  if (typeof window === "undefined") return { teamId: null };
   try {
     const raw = localStorage.getItem(LOCAL_KEY);
-    return raw ? JSON.parse(raw) : { playerId: null, teamId: null };
+    return raw ? JSON.parse(raw) : { teamId: null };
   } catch {
-    return { playerId: null, teamId: null };
+    return { teamId: null };
   }
 }
-function saveLocal(v: { playerId: string | null; teamId: string | null }) {
+function saveLocal(v: { teamId: string | null }) {
   try {
     localStorage.setItem(LOCAL_KEY, JSON.stringify(v));
   } catch {
@@ -131,14 +126,10 @@ function errorMessage(e: unknown): string {
 export function PlayerApp({ eventId }: { eventId: string }) {
   const supabase = createClient();
   const [ready, setReadyState] = useState(false);
-  const [playerId, setPlayerId] = useState<string | null>(null);
   const [teamId, setTeamId] = useState<string | null>(null);
   const [team, setTeam] = useState<Team | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
-  const [pairedPlayerIds, setPairedPlayerIds] = useState<Set<string>>(new Set());
-  const [teamMemberCount, setTeamMemberCount] = useState(2);
-  const [me, setMe] = useState<Player | null>(null);
-  const [invites, setInvites] = useState<Invite[]>([]);
+  const [teamedPlayerIds, setTeamedPlayerIds] = useState<Set<string>>(new Set());
   const [matchup, setMatchup] = useState<Matchup | null>(null);
   const [shareStealSubmissions, setShareStealSubmissions] = useState<ShareStealSubmission[]>([]);
   const [revealSeenMatchupId, setRevealSeenMatchupId] = useState<string | null>(null);
@@ -146,14 +137,14 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   const prevTeamStatusRef = useRef<string | null>(null);
   const prevHeartsRef = useRef<number | null>(null);
   const [opponentTeam, setOpponentTeam] = useState<Team | null>(null);
-  const [myTeamPhotos, setMyTeamPhotos] = useState<(string | null)[]>([]);
+  const [myTeamPhoto, setMyTeamPhoto] = useState<string | null>(null);
   const [collectedCards, setCollectedCards] = useState<CardCode[]>([]);
   const [finalistSlot, setFinalistSlot] = useState<number | null>(null);
   const [isWinner, setIsWinner] = useState(false);
-  const [uiStep, setUiStep] = useState<"landing" | "selfie" | "select-name" | "confirm">("landing");
-  const [selfie, setSelfie] = useState<string | null>(null);
-  const [claimPinShown, setClaimPinShown] = useState<string | null>(null);
-  const [claiming, setClaiming] = useState(false);
+  const [formStep, setFormStep] = useState<"landing" | "select-teammates" | "photo" | "recover">("landing");
+  const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
+  const [forming, setForming] = useState(false);
+  const [recoveryPinShown, setRecoveryPinShown] = useState<string | null>(null);
   const [myChoice, setMyChoice] = useState<"share" | "steal" | null>(null);
   const [toast, setToastMsg] = useState<string | null>(null);
   const [eventStartsAt, setEventStartsAt] = useState<string | null>(null);
@@ -175,7 +166,6 @@ export function PlayerApp({ eventId }: { eventId: string }) {
         await supabase.auth.signInAnonymously();
       }
       const local = loadLocal();
-      setPlayerId(local.playerId);
       setTeamId(local.teamId);
       setPostPairingSeenTeamId(loadPostPairingSeenTeamId());
       setRevealSeenMatchupId(loadRevealSeenMatchupId());
@@ -184,14 +174,9 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   }, [supabase]);
 
   const refreshRoster = useCallback(async () => {
-    const { data } = await supabase
-      .from("players")
-      .select("id, display_name, claim_status, selfie_path")
-      .eq("event_id", eventId)
-      .order("display_name");
+    const { data } = await supabase.from("players").select("id, display_name").eq("event_id", eventId).order("display_name");
     setPlayers(data ?? []);
-    if (playerId) setMe((data ?? []).find((p) => p.id === playerId) ?? null);
-  }, [supabase, eventId, playerId]);
+  }, [supabase, eventId]);
 
   const refreshEventStartsAt = useCallback(async () => {
     const { data } = await supabase.from("events").select("starts_at, countdown_started_at").eq("id", eventId).maybeSingle();
@@ -199,22 +184,10 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     setCountdownStartedAt(data?.countdown_started_at ?? null);
   }, [supabase, eventId]);
 
-  const refreshPairedPlayers = useCallback(async () => {
+  const refreshTeamedPlayerIds = useCallback(async () => {
     const { data } = await supabase.from("team_members").select("player_id");
-    setPairedPlayerIds(new Set((data ?? []).map((m) => m.player_id)));
+    setTeamedPlayerIds(new Set((data ?? []).map((m) => m.player_id)));
   }, [supabase]);
-
-  // Discovers a team the *other* pair member didn't create themselves — e.g.
-  // the inviter's device never calls acceptInvite, so it has no other way to
-  // learn a team now exists for them once the invitee accepts.
-  const refreshMyTeamMembership = useCallback(async () => {
-    if (!playerId || teamId) return;
-    const { data } = await supabase.from("team_members").select("team_id").eq("player_id", playerId).maybeSingle();
-    if (data) {
-      setTeamId(data.team_id);
-      saveLocal({ playerId, teamId: data.team_id });
-    }
-  }, [supabase, playerId, teamId]);
 
   const refreshTeam = useCallback(async () => {
     if (!teamId) return;
@@ -228,24 +201,8 @@ export function PlayerApp({ eventId }: { eventId: string }) {
 
   useEffect(() => {
     if (!teamId) return;
-    getTeamPortraits(teamId).then((p) => setMyTeamPhotos(p.map((x) => x.url)));
-  }, [teamId, teamMemberCount]);
-
-  const refreshTeamMemberCount = useCallback(async () => {
-    if (!teamId) return;
-    const { count } = await supabase.from("team_members").select("id", { count: "exact", head: true }).eq("team_id", teamId);
-    setTeamMemberCount(count ?? 2);
-  }, [supabase, teamId]);
-
-  const refreshInvites = useCallback(async () => {
-    if (!playerId) return;
-    const { data } = await supabase
-      .from("pair_invites")
-      .select("id, from_player_id, to_player_id, status")
-      .eq("status", "pending")
-      .or(`from_player_id.eq.${playerId},to_player_id.eq.${playerId}`);
-    setInvites(data ?? []);
-  }, [supabase, playerId]);
+    getTeamPhotoUrl(teamId).then(setMyTeamPhoto);
+  }, [teamId]);
 
   const refreshMatchup = useCallback(async () => {
     if (!teamId) return;
@@ -294,28 +251,13 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   useEffect(() => {
     if (!ready) return;
     refreshRoster();
-    refreshPairedPlayers();
-    refreshMyTeamMembership();
+    refreshTeamedPlayerIds();
     refreshTeam();
-    refreshTeamMemberCount();
-    refreshInvites();
     refreshCards();
     refreshFinalist();
     refreshWinner();
     refreshEventStartsAt();
-  }, [
-    ready,
-    refreshRoster,
-    refreshPairedPlayers,
-    refreshMyTeamMembership,
-    refreshTeam,
-    refreshTeamMemberCount,
-    refreshInvites,
-    refreshCards,
-    refreshFinalist,
-    refreshWinner,
-    refreshEventStartsAt,
-  ]);
+  }, [ready, refreshRoster, refreshTeamedPlayerIds, refreshTeam, refreshCards, refreshFinalist, refreshWinner, refreshEventStartsAt]);
 
   useEffect(() => {
     refreshMatchup();
@@ -344,7 +286,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   // just as easily land on a timestamp from minutes or days ago, and
   // unconditionally resetting to false used to spuriously block, then
   // self-correct a moment later, yanking players out of whatever step of
-  // selfie/pairing they were already on the instant the fetch resolved.
+  // team-formation step they were already on the instant the fetch resolved.
   useEffect(() => {
     if (!countdownStartedAt) {
       setCountdownDone(false);
@@ -405,12 +347,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     const channel = supabase
       .channel("player-app")
       .on("postgres_changes", { event: "*", schema: "public", table: "players" }, refreshRoster)
-      .on("postgres_changes", { event: "*", schema: "public", table: "team_members" }, () => {
-        refreshPairedPlayers();
-        refreshMyTeamMembership();
-        refreshTeamMemberCount();
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "pair_invites" }, refreshInvites)
+      .on("postgres_changes", { event: "*", schema: "public", table: "team_members" }, refreshTeamedPlayerIds)
       .on("postgres_changes", { event: "*", schema: "public", table: "teams" }, refreshTeam)
       .on("postgres_changes", { event: "*", schema: "public", table: "matchups" }, refreshMatchup)
       .on("postgres_changes", { event: "*", schema: "public", table: "share_steal_submissions" }, refreshShareStealSubmissions)
@@ -426,10 +363,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     ready,
     supabase,
     refreshRoster,
-    refreshPairedPlayers,
-    refreshMyTeamMembership,
-    refreshTeamMemberCount,
-    refreshInvites,
+    refreshTeamedPlayerIds,
     refreshTeam,
     refreshMatchup,
     refreshShareStealSubmissions,
@@ -441,8 +375,8 @@ export function PlayerApp({ eventId }: { eventId: string }) {
 
   if (!ready) return null;
 
-  // ---------- Pre-game gate: nobody can register, take a selfie, or pair up
-  // until an admin starts the game and the 3-minute countdown clears. Keyed
+  // ---------- Pre-game gate: nobody can form a team until an admin starts
+  // the game and the 3-minute countdown clears. Keyed
   // on !teamId rather than the countdown fields alone, so a team that's
   // already formed and playing can never get bounced back here — e.g. if a
   // manager cancels/restarts the countdown well after the event is underway.
@@ -461,38 +395,29 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     );
   }
 
-  // ---------- Registration ----------
-  if (!playerId || !me) {
-    if (claimPinShown && me) {
+  // ---------- Team formation / recovery ----------
+  if (!teamId || !team) {
+    if (recoveryPinShown) {
       return (
         <Screen startsAt={eventStartsAt} connected={connected}>
           <Stack>
-            <Portrait name={me.display_name} photoUrl={selfie} size={96} />
-            <h2 style={{ fontWeight: 400, fontSize: "var(--fs-h4)" }}>Save this, just in case</h2>
+            <h2 style={{ fontWeight: 400, fontSize: "var(--fs-h4)" }}>Save this — just in case</h2>
             <p style={{ fontSize: "var(--fs-body)", textAlign: "center", maxWidth: 320 }}>
-              If you ever picked the wrong name by mistake, tell a manager this PIN and they can fix it for you.
+              If this phone dies, a teammate can use this PIN to pick up your team from their own phone.
             </p>
-            <div className="label">Your recovery PIN</div>
-            <div style={{ fontFamily: "var(--font-mono)", fontSize: 40, letterSpacing: "0.3em" }}>{claimPinShown}</div>
+            <div className="label">Your team&apos;s recovery PIN</div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 40, letterSpacing: "0.3em" }}>{recoveryPinShown}</div>
             <button
               className="btn btn-outline"
               style={{ width: "100%" }}
               onClick={() => {
-                navigator.clipboard?.writeText(claimPinShown);
+                navigator.clipboard?.writeText(recoveryPinShown);
                 notify("PIN copied.");
               }}
             >
               Copy PIN
             </button>
-            <button
-              className="btn"
-              style={{ width: "100%" }}
-              onClick={() => {
-                setPlayerId(me.id);
-                saveLocal({ playerId: me.id, teamId: null });
-                setClaimPinShown(null);
-              }}
-            >
+            <button className="btn" style={{ width: "100%" }} onClick={() => setRecoveryPinShown(null)}>
               Got it, continue
             </button>
           </Stack>
@@ -501,7 +426,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     }
     return (
       <Screen startsAt={eventStartsAt} connected={connected}>
-        {uiStep === "landing" && (
+        {formStep === "landing" && (
           <Stack>
             <div style={{ textAlign: "center" }}>
               <img
@@ -510,95 +435,63 @@ export function PlayerApp({ eventId }: { eventId: string }) {
                 style={{ width: "100%", maxWidth: 340, height: "auto" }}
               />
             </div>
-            <button className="btn" style={{ width: "100%" }} onClick={() => setUiStep("selfie")}>
+            <button className="btn" style={{ width: "100%" }} onClick={() => setFormStep("select-teammates")}>
               Enter Borderland
             </button>
+            <button className="btn btn-outline" style={{ width: "100%" }} onClick={() => setFormStep("recover")}>
+              My team already exists — recover with PIN
+            </button>
           </Stack>
         )}
-        {uiStep === "selfie" && (
-          <SelfieStep
-            onDone={(photo) => {
-              setSelfie(photo);
-              setUiStep("select-name");
+        {formStep === "select-teammates" && (
+          <SelectTeammatesStep
+            players={players}
+            teamedPlayerIds={teamedPlayerIds}
+            onContinue={(ids) => {
+              setSelectedPlayerIds(ids);
+              setFormStep("photo");
             }}
           />
         )}
-        {uiStep === "select-name" && (
-          <NameSelectStep
-            players={players}
-            onSelectAvailable={(p) => {
-              setMe(p);
-              setUiStep("confirm");
+        {formStep === "photo" && (
+          <TeamPhotoStep
+            forming={forming}
+            onBack={() => setFormStep("select-teammates")}
+            onDone={async (photoDataUrl) => {
+              setForming(true);
+              try {
+                const result = await formTeam(selectedPlayerIds, photoDataUrl);
+                if (result.ok) {
+                  setTeamId(result.teamId);
+                  saveLocal({ teamId: result.teamId });
+                  setRecoveryPinShown(result.recoveryPin);
+                } else {
+                  notify(
+                    result.reason === "already_on_team"
+                      ? "One of these players is already on a team."
+                      : "Couldn't form your team — try again.",
+                  );
+                  setFormStep("select-teammates");
+                }
+              } catch {
+                notify("Couldn't submit — check your connection and try again.");
+              } finally {
+                setForming(false);
+              }
             }}
-            onSelectClaimed={async (p) => {
-              setMe(p);
-              setPlayerId(p.id);
-              const { data: membership } = await supabase
-                .from("team_members")
-                .select("team_id")
-                .eq("player_id", p.id)
-                .maybeSingle();
-              const recoveredTeamId = membership?.team_id ?? null;
+          />
+        )}
+        {formStep === "recover" && (
+          <RecoverTeamStep
+            onBack={() => setFormStep("landing")}
+            onRecovered={(recoveredTeamId) => {
               setTeamId(recoveredTeamId);
-              saveLocal({ playerId: p.id, teamId: recoveredTeamId });
+              saveLocal({ teamId: recoveredTeamId });
               notify("Welcome back.");
             }}
+            notify={notify}
           />
         )}
-        {uiStep === "confirm" && me && (
-          <Stack>
-            <Portrait name={me.display_name} photoUrl={selfie} size={120} />
-            <h2 style={{ fontWeight: 400, fontSize: "var(--fs-h3)" }}>Hi, {me.display_name.split(" ")[0]}!</h2>
-            <button
-              className="btn"
-              style={{ width: "100%" }}
-              disabled={claiming}
-              onClick={async () => {
-                setClaiming(true);
-                try {
-                  const result = await claimPlayer(me.id);
-                  if (result.ok) {
-                    if (selfie) await uploadSelfie(me.id, selfie);
-                    setClaimPinShown(result.recoveryPin);
-                  } else {
-                    notify("That name was just claimed by someone else.");
-                    setUiStep("select-name");
-                  }
-                } catch {
-                  notify("Couldn't submit — check your connection and try again.");
-                } finally {
-                  setClaiming(false);
-                }
-              }}
-            >
-              {claiming ? "Just a sec…" : "Yes, continue"}
-            </button>
-            <button className="btn btn-outline" style={{ width: "100%" }} onClick={() => setUiStep("select-name")}>
-              Not me
-            </button>
-          </Stack>
-        )}
-        <Toast msg={toast} />
-      </Screen>
-    );
-  }
-
-  // ---------- Pairing lobby ----------
-  if (!teamId || !team) {
-    return (
-      <Screen startsAt={eventStartsAt} connected={connected}>
-        <PairingLobby
-          me={me}
-          selfie={selfie}
-          players={players}
-          pairedPlayerIds={pairedPlayerIds}
-          invites={invites}
-          onPaired={(newTeamId) => {
-            setTeamId(newTeamId);
-            saveLocal({ playerId, teamId: newTeamId });
-          }}
-          notify={notify}
-        />
         <Toast msg={toast} />
       </Screen>
     );
@@ -668,10 +561,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   // ---------- In-game ----------
   return (
     <Screen startsAt={eventStartsAt} connected={connected}>
-      <PlayerHeader team={team} photos={myTeamPhotos} />
-      {teamMemberCount < 3 && team.status === "round1" && !matchup && (
-        <AddThirdPlayer teamId={teamId} players={players} pairedPlayerIds={pairedPlayerIds} notify={notify} />
-      )}
+      <PlayerHeader team={team} photo={myTeamPhoto} />
       {team.status === "round1" && (
         <Round1Flow
           teamId={teamId}
@@ -756,7 +646,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
         <div className="dramatic-panel">
           <p className="label flicker-in">The Borderland has a winner</p>
           <div className="pop-in">
-            <PortraitPair names={team.name.split(" + ")} photos={myTeamPhotos} size={92} />
+            <Portrait name={team.name} photoUrl={myTeamPhoto} size={92} />
           </div>
           <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: "var(--fs-display)", fontWeight: 700, textAlign: "center" }}>
             You won.
@@ -776,7 +666,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
         <div className="dramatic-panel">
           <p className="label flicker-in">You made it through</p>
           <div className="pop-in">
-            <PortraitPair names={team.name.split(" + ")} photos={myTeamPhotos} size={92} />
+            <Portrait name={team.name} photoUrl={myTeamPhoto} size={92} />
           </div>
           <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: "var(--fs-h1)", textAlign: "center" }}>
             Finalist #{finalistSlot ?? "—"}
@@ -880,12 +770,12 @@ function Toast({ msg }: { msg: string | null }) {
   );
 }
 
-function PlayerHeader({ team, photos }: { team: Team; photos: (string | null)[] }) {
+function PlayerHeader({ team, photo }: { team: Team; photo: string | null }) {
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   return (
     <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: 16, borderBottom: "1px solid rgba(10,10,10,0.15)", marginBottom: 20 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-        <PortraitPair names={team.name.split(" + ")} photos={photos} size={32} />
+        <Portrait name={team.name} photoUrl={photo} size={32} />
         <div>
           <div style={{ fontSize: "var(--fs-body)" }}>{team.name}</div>
           <div style={{ fontSize: "var(--fs-md)" }}>♥ {team.hearts_cached}</div>
@@ -975,7 +865,7 @@ export function LeaderboardRow({ team, highlight, rank }: { team: Team; highligh
       }}
     >
       <div style={{ width: 22, textAlign: "center", fontSize: "var(--fs-sm)", color: "var(--muted)" }}>{rank}</div>
-      <PortraitPair names={team.name.split(" + ")} size={32} />
+      <Portrait name={team.name} size={32} />
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: "var(--fs-body)", fontWeight: highlight ? 700 : 400 }}>
           {team.name}
@@ -987,21 +877,94 @@ export function LeaderboardRow({ team, highlight, rank }: { team: Team; highligh
   );
 }
 
-function SelfieStep({ onDone }: { onDone: (photo: string | null) => void }) {
+function SelectTeammatesStep({
+  players,
+  teamedPlayerIds,
+  onContinue,
+}: {
+  players: Player[];
+  teamedPlayerIds: Set<string>;
+  onContinue: (ids: string[]) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<string[]>([]);
+  const available = players.filter(
+    (p) => !teamedPlayerIds.has(p.id) && p.display_name.toLowerCase().includes(query.toLowerCase()),
+  );
+
+  function toggle(id: string) {
+    setSelected((cur) => {
+      if (cur.includes(id)) return cur.filter((x) => x !== id);
+      if (cur.length >= 3) return cur;
+      return [...cur, id];
+    });
+  }
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+      <h2 style={{ fontWeight: 400, fontSize: "var(--fs-h4)", marginBottom: 8, textAlign: "center" }}>Who&apos;s on your team?</h2>
+      <p style={{ fontSize: "var(--fs-body)", textAlign: "center", color: "var(--muted)", marginBottom: 16 }}>
+        Pick the 2 or 3 people standing here with you right now.
+      </p>
+      <input type="text" placeholder="Search roster…" value={query} onChange={(e) => setQuery(e.target.value)} />
+      <div style={{ marginTop: 8, flex: 1, overflowY: "auto" }}>
+        {available.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0", textAlign: "center" }}>Everyone&apos;s already on a team.</p>}
+        {available.map((p) => {
+          const isSelected = selected.includes(p.id);
+          return (
+            <div
+              key={p.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => toggle(p.id)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 14,
+                padding: "14px 10px",
+                marginBottom: 6,
+                border: isSelected ? "2px solid var(--accent)" : "1.6px solid transparent",
+                background: isSelected ? "rgba(198,40,40,0.06)" : "transparent",
+                cursor: "pointer",
+              }}
+            >
+              <Portrait name={p.display_name} size={36} />
+              <div style={{ flex: 1 }}>{p.display_name}</div>
+              {isSelected && <span style={{ color: "var(--accent)", fontSize: "var(--fs-h4)" }}>✓</span>}
+            </div>
+          );
+        })}
+      </div>
+      <button className="btn" style={{ width: "100%", marginTop: 12 }} disabled={selected.length < 2} onClick={() => onContinue(selected)}>
+        {selected.length < 2 ? "Select at least 2" : `Continue with ${selected.length}`}
+      </button>
+    </div>
+  );
+}
+
+function TeamPhotoStep({
+  forming,
+  onBack,
+  onDone,
+}: {
+  forming: boolean;
+  onBack: () => void;
+  onDone: (photo: string) => void;
+}) {
   const [photo, setPhoto] = useState<string | null>(null);
 
   if (photo) {
     return (
       <Stack>
-        <p className="label">Looking good?</p>
+        <p className="label">Everyone in frame?</p>
         {/* eslint-disable-next-line @next/next/no-img-element -- local capture preview, no benefit from next/image here */}
         <img
           src={photo}
-          alt="Your selfie"
+          alt="Your team"
           style={{ width: 240, height: 240, objectFit: "cover", border: "2px solid var(--line)", filter: "grayscale(1) contrast(1.05)" }}
         />
-        <button className="btn" style={{ width: "100%" }} onClick={() => onDone(photo)}>
-          Use this photo
+        <button className="btn" style={{ width: "100%" }} disabled={forming} onClick={() => onDone(photo)}>
+          {forming ? "Just a sec…" : "Use this photo"}
         </button>
         <button className="btn btn-outline" style={{ width: "100%" }} onClick={() => setPhoto(null)}>
           Retake
@@ -1012,243 +975,95 @@ function SelfieStep({ onDone }: { onDone: (photo: string | null) => void }) {
 
   return (
     <Stack>
-      <PhotoCapture label="Smile :)" onCapture={(dataUrl) => setPhoto(dataUrl)} onSkip={() => onDone(null)} />
+      <PhotoCapture label="Get the whole team in frame" buttonLabel="Take Photo" mirror={false} onCapture={(dataUrl) => setPhoto(dataUrl)} />
+      <button className="btn btn-outline" style={{ width: "100%" }} onClick={onBack}>
+        Back
+      </button>
     </Stack>
   );
 }
 
-function NameSelectStep({
-  players,
-  onSelectAvailable,
-  onSelectClaimed,
-}: {
-  players: Player[];
-  onSelectAvailable: (p: Player) => void;
-  onSelectClaimed: (p: Player) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const filtered = players.filter((p) => p.display_name.toLowerCase().includes(query.toLowerCase()));
-  return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-      <h2 style={{ fontWeight: 400, fontSize: "var(--fs-h4)", marginBottom: 16 }}>Select your name</h2>
-      <input type="text" placeholder="Search roster…" value={query} onChange={(e) => setQuery(e.target.value)} />
-      <div style={{ marginTop: 8, flex: 1, overflowY: "auto" }}>
-        {filtered.map((p) => (
-          <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 0", borderBottom: "1px solid rgba(10,10,10,0.1)" }}>
-            <Portrait name={p.display_name} size={36} />
-            <div style={{ flex: 1 }}>{p.display_name}</div>
-            <button className="btn" style={{ width: "auto", minHeight: "auto", padding: "10px 18px", fontSize: "var(--fs-body)" }} onClick={() => (p.claim_status === "available" ? onSelectAvailable(p) : onSelectClaimed(p))}>
-              {p.claim_status === "available" ? "Select" : "Recover"}
-            </button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function PairingLobby({
-  me,
-  selfie,
-  players,
-  pairedPlayerIds,
-  invites,
-  onPaired,
+function RecoverTeamStep({
+  onBack,
+  onRecovered,
   notify,
 }: {
-  me: Player;
-  selfie: string | null;
-  players: Player[];
-  pairedPlayerIds: Set<string>;
-  invites: Invite[];
-  onPaired: (teamId: string) => void;
+  onBack: () => void;
+  onRecovered: (teamId: string) => void;
   notify: (msg: string) => void;
 }) {
-  const incoming = invites.filter((i) => i.to_player_id === me.id);
-  const outgoing = invites.find((i) => i.from_player_id === me.id);
-  const [pending, setPending] = useState(false);
-
-  // An incoming invite takes over the whole screen — someone's waiting on
-  // your decision, so it takes priority over browsing the roster or even
-  // your own outgoing invite.
-  if (incoming.length > 0) {
-    const invite = incoming[0]!;
-    const fromPlayer = players.find((p) => p.id === invite.from_player_id);
-    if (fromPlayer) {
-      return (
-        <IncomingInviteScreen
-          fromPlayer={fromPlayer}
-          pending={pending}
-          onAccept={async () => {
-            setPending(true);
-            try {
-              const result = await acceptInvite(invite.id);
-              if (result.ok) onPaired(result.teamId);
-              else notify("That invite is no longer available.");
-            } catch {
-              notify("Couldn't submit — check your connection and try again.");
-            } finally {
-              setPending(false);
-            }
-          }}
-          onDecline={async () => {
-            setPending(true);
-            try {
-              await declineInvite(invite.id);
-            } catch {
-              notify("Couldn't submit — check your connection and try again.");
-            } finally {
-              setPending(false);
-            }
-          }}
-        />
-      );
-    }
-  }
-
-  if (outgoing) {
-    const toPlayer = players.find((p) => p.id === outgoing.to_player_id);
-    if (toPlayer) {
-      return (
-        <OutgoingInviteScreen
-          toPlayer={toPlayer}
-          pending={pending}
-          onCancel={async () => {
-            setPending(true);
-            try {
-              await cancelInvite(outgoing.id);
-            } catch {
-              notify("Couldn't submit — check your connection and try again.");
-            } finally {
-              setPending(false);
-            }
-          }}
-        />
-      );
-    }
-  }
-
-  // Only people who've actually signed in (claimed their identity) and
-  // aren't already on a team show up as invitable — not the whole roster.
-  const available = players.filter(
-    (p) => p.claim_status === "claimed" && p.id !== me.id && !pairedPlayerIds.has(p.id),
-  );
-
-  return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, paddingBottom: 16, borderBottom: "1px solid rgba(10,10,10,0.15)", marginBottom: 20 }}>
-        <Portrait name={me.display_name} photoUrl={selfie} size={40} />
-        <div style={{ fontSize: "var(--fs-body)" }}>{me.display_name}</div>
-      </div>
-      <h2 style={{ fontWeight: 400, fontSize: "var(--fs-h4)", textAlign: "center", marginBottom: 12 }}>Pair up</h2>
-      <p className="label" style={{ textAlign: "left", marginTop: 16 }}>
-        Available
-      </p>
-      {available.map((p) => (
-        <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 0" }}>
-          <Portrait name={p.display_name} size={36} />
-          <div style={{ flex: 1 }}>{p.display_name}</div>
-          <button
-            className="btn"
-            style={{ width: "auto", minHeight: "auto", padding: "10px 18px", fontSize: "var(--fs-body)" }}
-            disabled={pending}
-            onClick={async () => {
-              setPending(true);
-              try {
-                const result = await sendInvite(me.id, p.id);
-                if (!result.ok) notify("You already have an outgoing invite.");
-              } catch {
-                notify("Couldn't submit — check your connection and try again.");
-              } finally {
-                setPending(false);
-              }
-            }}
-          >
-            Invite
-          </button>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function IncomingInviteScreen({
-  fromPlayer,
-  onAccept,
-  onDecline,
-  pending,
-}: {
-  fromPlayer: Player;
-  onAccept: () => void;
-  onDecline: () => void;
-  pending: boolean;
-}) {
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [teams, setTeams] = useState<{ id: string; name: string }[]>([]);
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+  const [pin, setPin] = useState("");
+  const [recovering, setRecovering] = useState(false);
 
   useEffect(() => {
-    getPlayerPhotoUrls([fromPlayer.id]).then((results) => setPhotoUrl(results[0]?.url ?? null));
-  }, [fromPlayer.id]);
+    const supabase = createClient();
+    supabase
+      .from("teams")
+      .select("id, name")
+      .order("name")
+      .then(({ data }) => setTeams(data ?? []));
+  }, []);
+
+  if (!selectedTeamId) {
+    return (
+      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+        <h2 style={{ fontWeight: 400, fontSize: "var(--fs-h4)", marginBottom: 16, textAlign: "center" }}>Which team is yours?</h2>
+        <div style={{ flex: 1, overflowY: "auto" }}>
+          {teams.map((t) => (
+            <button
+              key={t.id}
+              className="btn-outline"
+              style={{ width: "100%", padding: 14, marginBottom: 8, border: "1.6px solid var(--line)", textAlign: "left" }}
+              onClick={() => setSelectedTeamId(t.id)}
+            >
+              {t.name}
+            </button>
+          ))}
+        </div>
+        <button className="btn btn-outline" style={{ width: "100%", marginTop: 12 }} onClick={onBack}>
+          Back
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-      <div
-        className="fade-up"
-        style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24 }}
+    <Stack>
+      <p className="label">Enter your team&apos;s PIN</p>
+      <input
+        type="text"
+        inputMode="numeric"
+        maxLength={4}
+        value={pin}
+        onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+        placeholder="4-digit PIN"
+        style={{ fontFamily: "var(--font-mono)", fontSize: 32, letterSpacing: "0.3em", textAlign: "center" }}
+      />
+      <button
+        className="btn"
+        style={{ width: "100%" }}
+        disabled={pin.length !== 4 || recovering}
+        onClick={async () => {
+          setRecovering(true);
+          try {
+            const result = await recoverTeamWithPin(selectedTeamId, pin);
+            if (result.ok) onRecovered(result.teamId);
+            else notify(result.reason === "wrong_pin" ? "Wrong PIN — try again." : "Could not recover that team.");
+          } catch {
+            notify("Couldn't submit — check your connection and try again.");
+          } finally {
+            setRecovering(false);
+          }
+        }}
       >
-        <p className="label">You received an invite from</p>
-        <div className="pop-in">
-          <Portrait name={fromPlayer.display_name} photoUrl={photoUrl} size={96} />
-        </div>
-        <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "var(--fs-h2)", textAlign: "center" }}>
-          {fromPlayer.display_name}
-        </h2>
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        <button className="btn" style={{ width: "100%" }} disabled={pending} onClick={onAccept}>
-          Accept invite
-        </button>
-        <button className="btn btn-outline" style={{ width: "100%" }} disabled={pending} onClick={onDecline}>
-          Reject invite
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function OutgoingInviteScreen({
-  toPlayer,
-  onCancel,
-  pending,
-}: {
-  toPlayer: Player;
-  onCancel: () => void;
-  pending: boolean;
-}) {
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    getPlayerPhotoUrls([toPlayer.id]).then((results) => setPhotoUrl(results[0]?.url ?? null));
-  }, [toPlayer.id]);
-
-  return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-      <div
-        className="fade-up"
-        style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24 }}
-      >
-        <p className="label">Invite sent to</p>
-        <div className="pulse-accent">
-          <Portrait name={toPlayer.display_name} photoUrl={photoUrl} size={96} />
-        </div>
-        <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "var(--fs-h2)", textAlign: "center" }}>
-          {toPlayer.display_name}
-        </h2>
-        <p style={{ fontSize: "var(--fs-body)", color: "var(--muted)", textAlign: "center" }}>Waiting for confirmation…</p>
-      </div>
-      <button className="btn btn-outline" style={{ width: "100%" }} disabled={pending} onClick={onCancel}>
-        Cancel invite
+        {recovering ? "Checking…" : "Recover team"}
       </button>
-    </div>
+      <button className="btn btn-outline" style={{ width: "100%" }} onClick={() => setSelectedTeamId(null)}>
+        Back
+      </button>
+    </Stack>
   );
 }
 
@@ -1261,84 +1076,12 @@ export function PostPairingScreen({ onContinue }: { onContinue: () => void }) {
         you&apos;re out.
       </p>
       <p style={{ fontSize: "var(--fs-md)", lineHeight: 1.6, textAlign: "center", color: "var(--muted)", maxWidth: 320 }}>
-        Either of you can play from your own phone — no need to share one.
+        Whoever's holding this phone plays for the whole team — if it dies, use your recovery PIN on another phone.
       </p>
       <button className="btn" style={{ width: "100%" }} onClick={onContinue}>
         Continue
       </button>
     </Stack>
-  );
-}
-
-function AddThirdPlayer({
-  teamId,
-  players,
-  pairedPlayerIds,
-  notify,
-}: {
-  teamId: string;
-  players: Player[];
-  pairedPlayerIds: Set<string>;
-  notify: (msg: string) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const [pendingId, setPendingId] = useState<string | null>(null);
-  const available = players.filter((p) => p.claim_status === "claimed" && !pairedPlayerIds.has(p.id));
-
-  if (!expanded) {
-    return (
-      <button className="btn-outline" style={{ width: "100%", marginBottom: 20, fontSize: "var(--fs-md)" }} onClick={() => setExpanded(true)}>
-        + Add a 3rd player
-      </button>
-    );
-  }
-
-  return (
-    <div style={{ marginBottom: 20, border: "1px solid var(--line)", padding: 14 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        <p className="label" style={{ margin: 0 }}>
-          Add a 3rd player
-        </p>
-        <button
-          className="btn-outline"
-          style={{ width: 44, height: 44, minHeight: 44, padding: 0, border: "1.6px solid var(--line)" }}
-          aria-label="Close"
-          onClick={() => setExpanded(false)}
-        >
-          ✕
-        </button>
-      </div>
-      {available.length === 0 && <p style={{ color: "var(--muted)", fontSize: "var(--fs-md)" }}>No unpaired players available.</p>}
-      {available.map((p) => (
-        <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 0" }}>
-          <Portrait name={p.display_name} size={32} />
-          <div style={{ flex: 1 }}>{p.display_name}</div>
-          <button
-            className="btn"
-            style={{ width: "auto", minHeight: "auto", padding: "8px 16px", fontSize: "var(--fs-md)" }}
-            disabled={pendingId === p.id}
-            onClick={async () => {
-              setPendingId(p.id);
-              try {
-                const result = await inviteThirdPlayer(teamId, p.id);
-                if (result.ok) {
-                  notify(`${p.display_name} added to your team.`);
-                  setExpanded(false);
-                } else {
-                  notify(result.reason === "team_full" ? "Your team is already full." : "Could not add that player.");
-                }
-              } catch {
-                notify("Couldn't submit — check your connection and try again.");
-              } finally {
-                setPendingId(null);
-              }
-            }}
-          >
-            Add
-          </button>
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -1358,8 +1101,8 @@ export function ShareStealReveal({
   onDismiss: () => void;
 }) {
   const [now, setNow] = useState(() => Date.now());
-  const [myPhotos, setMyPhotos] = useState<(string | null)[]>([]);
-  const [opponentPhotos, setOpponentPhotos] = useState<(string | null)[]>([]);
+  const [myPhoto, setMyPhoto] = useState<string | null>(null);
+  const [opponentPhoto, setOpponentPhoto] = useState<string | null>(null);
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 200);
@@ -1367,8 +1110,8 @@ export function ShareStealReveal({
   }, []);
 
   useEffect(() => {
-    getTeamPortraits(team.id).then((p) => setMyPhotos(p.map((x) => x.url)));
-    getTeamPortraits(opponentTeam.id).then((p) => setOpponentPhotos(p.map((x) => x.url)));
+    getTeamPhotoUrl(team.id).then(setMyPhoto);
+    getTeamPhotoUrl(opponentTeam.id).then(setOpponentPhoto);
   }, [team.id, opponentTeam.id]);
 
   // Anchored to the server's resolved_at, not local reveal-start time — a
@@ -1390,15 +1133,15 @@ export function ShareStealReveal({
       <div style={{ display: "flex", gap: 20, width: "100%", justifyContent: "center" }}>
         <RevealColumn
           label="YOUR PAIR"
-          names={team.name.split(" + ")}
-          photos={myPhotos}
+          name={team.name}
+          photo={myPhoto}
           choice={revealed ? mySub?.choice : undefined}
           delta={revealed ? outcome?.deltaA : undefined}
         />
         <RevealColumn
           label="OPPONENTS"
-          names={opponentTeam.name.split(" + ")}
-          photos={opponentPhotos}
+          name={opponentTeam.name}
+          photo={opponentPhoto}
           choice={revealed ? opponentSub?.choice : undefined}
           delta={revealed ? outcome?.deltaB : undefined}
         />
@@ -1425,20 +1168,20 @@ export function ShareStealReveal({
 
 function RevealColumn({
   label,
-  names,
-  photos,
+  name,
+  photo,
   choice,
   delta,
 }: {
   label: string;
-  names: string[];
-  photos: (string | null)[];
+  name: string;
+  photo: string | null;
   choice?: ShareStealChoice;
   delta?: number;
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, flex: 1 }}>
-      <PortraitPair names={names} photos={photos} size={76} />
+      <Portrait name={name} photoUrl={photo} size={76} />
       <p className="label" style={{ marginTop: 4 }}>
         {label}
       </p>
@@ -1494,16 +1237,16 @@ function Round1Flow({
   const [locallySubmitted, setLocallySubmitted] = useState(false);
   const [rulesSeen, setRulesSeen] = useState(false);
   const [rulesModalOpen, setRulesModalOpen] = useState(false);
-  const [opponentPhotos, setOpponentPhotos] = useState<(string | null)[]>([]);
+  const [opponentPhoto, setOpponentPhoto] = useState<string | null>(null);
   const [teammateDraftChoice, setTeammateDraftChoice] = useState<"share" | "steal" | null>(null);
   const draftChannelRef = useRef<ReturnType<ReturnType<typeof createClient>["channel"]> | null>(null);
 
   useEffect(() => {
     if (!opponentTeam) {
-      setOpponentPhotos([]);
+      setOpponentPhoto(null);
       return;
     }
-    getTeamPortraits(opponentTeam.id).then((portraits) => setOpponentPhotos(portraits.map((p) => p.url)));
+    getTeamPhotoUrl(opponentTeam.id).then(setOpponentPhoto);
   }, [opponentTeam]);
 
   // Ephemeral, not persisted — a lightweight broadcast so a still-deciding
@@ -1618,7 +1361,7 @@ function Round1Flow({
         {opponentTeam && (
           <>
             <div className="pop-in">
-              <PortraitPair names={opponentTeam.name.split(" + ")} photos={opponentPhotos} size={104} />
+              <Portrait name={opponentTeam.name} photoUrl={opponentPhoto} size={104} />
             </div>
             <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "var(--fs-h3)", textAlign: "center" }}>
               {opponentTeam.name}
@@ -1662,7 +1405,7 @@ function Round1Flow({
       <Stack>
         {opponentTeam && (
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: -4 }}>
-            <PortraitPair names={opponentTeam.name.split(" + ")} photos={opponentPhotos} size={36} />
+            <Portrait name={opponentTeam.name} photoUrl={opponentPhoto} size={36} />
             <div>
               <p className="label" style={{ marginBottom: 0 }}>
                 Facing

@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PortraitPair } from "@/components/Portrait";
-import { getTeamPortraits } from "@/lib/actions/photos";
+import { Portrait } from "@/components/Portrait";
+import { getTeamPhotoUrl } from "@/lib/actions/photos";
 
 export function CongratsScreen({
   teamId,
@@ -21,17 +21,17 @@ export function CongratsScreen({
   ctaLabel?: string;
   onDismiss: () => void;
 }) {
-  const [photos, setPhotos] = useState<(string | null)[]>([]);
+  const [photo, setPhoto] = useState<string | null>(null);
 
   useEffect(() => {
-    getTeamPortraits(teamId).then((p) => setPhotos(p.map((x) => x.url)));
+    getTeamPhotoUrl(teamId).then(setPhoto);
   }, [teamId]);
 
   return (
     <div className="dramatic-panel">
       <p className="label flicker-in">{eyebrow}</p>
       <div className="pop-in">
-        <PortraitPair names={teamName.split(" + ")} photos={photos} size={88} />
+        <Portrait name={teamName} photoUrl={photo} size={88} />
       </div>
       <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: 32, textAlign: "center" }}>
         {title}

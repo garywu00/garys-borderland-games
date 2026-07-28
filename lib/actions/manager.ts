@@ -404,9 +404,6 @@ export async function resetGameState() {
   await admin.from("device_sessions").delete().not("id", "is", null);
   await admin.from("team_members").delete().not("id", "is", null);
   await admin.from("teams").delete().not("id", "is", null);
-  await admin.from("pair_invites").delete().not("id", "is", null);
-  await admin.from("player_claims").delete().not("id", "is", null);
-  await admin.from("players").update({ claim_status: "available", claimed_by_auth_id: null }).not("id", "is", null);
 
   await logAction(manager.id, manager.role, "Reset game state", null, null, null);
   return { ok: true as const };
@@ -447,9 +444,9 @@ export async function updatePlayerName(playerId: string, newName: string) {
 
 /**
  * Removes a team entirely (mispairing, duplicate, etc.) and frees its
- * members back to the available roster so they can be re-paired. All the
- * team's matchups/cards/hearts/checkpoints/finalist-or-winner records go
- * with it (cascading FKs) rather than being left orphaned.
+ * members back to the roster so they can be re-teamed. All the team's
+ * matchups/cards/hearts/checkpoints/finalist-or-winner records go with it
+ * (cascading FKs) rather than being left orphaned.
  */
 export async function deleteTeam(teamId: string) {
   const manager = await requireManager();
@@ -458,52 +455,10 @@ export async function deleteTeam(teamId: string) {
   const { data: team } = await admin.from("teams").select("name").eq("id", teamId).maybeSingle();
   if (!team) return { ok: false as const, reason: "not_found" as const };
 
-  const { data: memberRows } = await admin.from("team_members").select("player_id").eq("team_id", teamId);
-  const playerIds = (memberRows ?? []).map((m) => m.player_id);
-
-  await admin.from("teams").update({ active_controller_device_id: null }).eq("id", teamId);
   const { error } = await admin.from("teams").delete().eq("id", teamId);
   if (error) return { ok: false as const, reason: "delete_failed" as const };
 
-  if (playerIds.length) {
-    await admin.from("player_claims").delete().in("player_id", playerIds);
-    await admin.from("players").update({ claim_status: "available", claimed_by_auth_id: null }).in("id", playerIds);
-  }
-
   await logAction(manager.id, manager.role, "Removed team", null, { teamId, name: team.name }, null);
-  return { ok: true as const };
-}
-
-/**
- * Releases a mistakenly-claimed name back to "available" so the right
- * person can claim it — for the case where someone picked the wrong roster
- * name before pairing up. Once a player has paired, use deleteTeam instead.
- */
-export async function resetPlayerClaim(playerId: string) {
-  const manager = await requireManager();
-  const admin = createAdminClient();
-
-  const { data: membership } = await admin
-    .from("team_members")
-    .select("team_id")
-    .eq("player_id", playerId)
-    .maybeSingle();
-  if (membership) return { ok: false as const, reason: "already_paired" as const };
-
-  const { data: before } = await admin.from("players").select("display_name").eq("id", playerId).single();
-
-  await admin
-    .from("player_claims")
-    .update({ released_at: new Date().toISOString() })
-    .eq("player_id", playerId)
-    .is("released_at", null);
-
-  await admin
-    .from("players")
-    .update({ claim_status: "available", claimed_by_auth_id: null })
-    .eq("id", playerId);
-
-  await logAction(manager.id, manager.role, "Reset player claim", null, { name: before?.display_name }, null);
   return { ok: true as const };
 }
 

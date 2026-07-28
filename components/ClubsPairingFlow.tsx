@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { PortraitPair } from "@/components/Portrait";
+import { Portrait } from "@/components/Portrait";
 import { voteClubsFail } from "@/lib/actions/checkpoints";
-import { getTeamPortraits } from "@/lib/actions/photos";
+import { getTeamPhotoUrl } from "@/lib/actions/photos";
 
 type Pairing = { id: string; team_a_id: string; team_b_id: string | null; status: string };
 type TeamInfo = { id: string; name: string; hearts_cached: number };
@@ -23,7 +23,7 @@ export function ClubsPairingFlow({
   const supabase = createClient();
   const [pairing, setPairing] = useState<Pairing | null | undefined>(undefined);
   const [opponent, setOpponent] = useState<TeamInfo | null>(null);
-  const [opponentPhotos, setOpponentPhotos] = useState<(string | null)[]>([]);
+  const [opponentPhoto, setOpponentPhoto] = useState<string | null>(null);
   const [myVoted, setMyVoted] = useState(false);
   const [voting, setVoting] = useState(false);
 
@@ -84,7 +84,7 @@ export function ClubsPairingFlow({
         .eq("id", opponentId)
         .maybeSingle()
         .then(({ data }) => setOpponent(data ?? null));
-      getTeamPortraits(opponentId).then((portraits) => setOpponentPhotos(portraits.map((p) => p.url)));
+      getTeamPhotoUrl(opponentId).then(setOpponentPhoto);
     }
     refreshMyVote(pairing.id);
   }, [pairing, teamId, supabase, refreshMyVote]);
@@ -120,7 +120,7 @@ export function ClubsPairingFlow({
           <>
             <p className="label">Your opponents</p>
             <div className="pop-in">
-              <PortraitPair names={opponent.name.split(" + ")} photos={opponentPhotos} size={104} />
+              <Portrait name={opponent.name} photoUrl={opponentPhoto} size={104} />
             </div>
             <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 26, textAlign: "center" }}>
               {opponent.name}

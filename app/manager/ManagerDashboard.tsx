@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { PortraitPair, Portrait } from "@/components/Portrait";
+import { Portrait } from "@/components/Portrait";
 import {
   pairClubsTeams,
   resolveClubsPass,
@@ -19,7 +19,6 @@ import {
   updatePlayerName,
   deleteTeam,
   addPlayer,
-  resetPlayerClaim,
   undoFinalistConfirmation,
   undoWinnerVerification,
   giveByeRound1,
@@ -32,8 +31,7 @@ import { FINALIST_SLOTS, GAME_COUNTDOWN_DURATION_MS } from "@/lib/game/rules";
 
 type Team = { id: string; name: string; hearts_cached: number; status: string; event_id: string; created_at: string };
 type Finalist = { team_id: string; slot: number };
-type Player = { id: string; display_name: string; claim_status: string };
-type Claim = { player_id: string; pin: string | null };
+type Player = { id: string; display_name: string };
 type ActivityEntry = { id: string; actor_role: string; action: string; created_at: string };
 type TriviaAttempt = {
   id: string;
@@ -63,7 +61,6 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
   const [teams, setTeams] = useState<Team[]>([]);
   const [finalists, setFinalists] = useState<Finalist[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
-  const [claims, setClaims] = useState<Claim[]>([]);
   const [recentActions, setRecentActions] = useState<ActivityEntry[]>([]);
   const [triviaAttempts, setTriviaAttempts] = useState<TriviaAttempt[]>([]);
   const [clubsPairings, setClubsPairings] = useState<ClubsPairing[]>([]);
@@ -96,10 +93,8 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
     setTeams(data ?? []);
     const { data: f } = await supabase.from("finalists").select("team_id, slot");
     setFinalists(f ?? []);
-    const { data: p } = await supabase.from("players").select("id, display_name, claim_status").order("display_name");
+    const { data: p } = await supabase.from("players").select("id, display_name").order("display_name");
     setPlayers(p ?? []);
-    const { data: c } = await supabase.from("player_claims").select("player_id, pin").is("released_at", null);
-    setClaims(c ?? []);
     const { data: a } = await supabase
       .from("manager_actions")
       .select("id, actor_role, action, created_at")
@@ -140,7 +135,6 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
       .on("postgres_changes", { event: "*", schema: "public", table: "teams" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "finalists" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "players" }, refresh)
-      .on("postgres_changes", { event: "*", schema: "public", table: "player_claims" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "manager_actions" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "team_trivia_attempts" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "clubs_pairings" }, refresh)
@@ -363,7 +357,6 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
         <OverviewView
           teams={teams}
           players={players}
-          claims={claims}
           recentActions={recentActions}
           countdownStartedAt={countdownStartedAt}
           now={now}
@@ -395,14 +388,6 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
           onAddPlayer={async (name) => {
             const result = await addPlayer(name);
             notify(result.ok ? "Player added to roster." : "That name is already on the roster.");
-          }}
-          onResetClaim={async (id) => {
-            const result = await resetPlayerClaim(id);
-            notify(
-              result.ok
-                ? "Claim reset — that name is available again."
-                : "Already paired up — use Remove team on that pair instead.",
-            );
           }}
         />
       )}
@@ -458,7 +443,7 @@ function TeamRow({
   const waitMs = waitingSince && now ? now - new Date(waitingSince).getTime() : 0;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 14, padding: 14, border: "1.6px solid var(--line)", marginBottom: 10 }}>
-      <PortraitPair names={team.name.split(" + ")} size={36} />
+      <Portrait name={team.name} size={36} />
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: 17 }}>{team.name}</div>
         <div style={{ fontSize: 14 }}>♥ {team.hearts_cached}</div>
@@ -726,7 +711,7 @@ function PairTeamsModal({
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: "16px 0 24px" }}>
-          <PortraitPair names={selectedTeam.name.split(" + ")} size={64} />
+          <Portrait name={selectedTeam.name} size={64} />
           <div style={{ fontSize: 20 }}>{selectedTeam.name}</div>
         </div>
 
@@ -975,7 +960,6 @@ function SpadesView({
 function OverviewView({
   teams,
   players,
-  claims,
   recentActions,
   countdownStartedAt,
   now,
@@ -987,11 +971,9 @@ function OverviewView({
   onRenamePlayer,
   onRemoveTeam,
   onAddPlayer,
-  onResetClaim,
 }: {
   teams: Team[];
   players: Player[];
-  claims: Claim[];
   recentActions: ActivityEntry[];
   countdownStartedAt: string | null;
   now: number;
@@ -1003,9 +985,7 @@ function OverviewView({
   onRenamePlayer: (id: string, name: string) => void;
   onRemoveTeam: (id: string) => void;
   onAddPlayer: (name: string) => void;
-  onResetClaim: (id: string) => void;
 }) {
-  const pinByPlayerId = new Map(claims.map((c) => [c.player_id, c.pin]));
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [newPlayerName, setNewPlayerName] = useState("");
 
@@ -1115,46 +1095,22 @@ function OverviewView({
           Add
         </button>
       </div>
-      {players.map((p) => {
-        const pin = pinByPlayerId.get(p.id);
-        return (
-          <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 0", borderBottom: "1px solid rgba(10,10,10,0.1)" }}>
-            <Portrait name={p.display_name} size={32} />
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 15 }}>{p.display_name}</div>
-              <div className="label">
-                {p.claim_status}
-                {p.claim_status === "claimed" && pin ? ` — PIN ${pin}` : ""}
-              </div>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <button
-                className="btn-outline"
-                style={{ width: "auto", minHeight: "auto", padding: "6px 10px", fontSize: 12, border: "1.6px solid var(--line)" }}
-                onClick={() => {
-                  const newName = prompt("New name", p.display_name);
-                  if (newName && newName.trim() && newName.trim() !== p.display_name) onRenamePlayer(p.id, newName.trim());
-                }}
-              >
-                Edit name
-              </button>
-              {p.claim_status === "claimed" && (
-                <button
-                  className="btn-outline"
-                  style={{ width: "auto", minHeight: "auto", padding: "6px 10px", fontSize: 12, border: "1.6px solid var(--accent)", color: "var(--accent)" }}
-                  onClick={() => {
-                    if (confirm(`Reset ${p.display_name}'s claim? They picked the wrong name — this frees it back to available.`)) {
-                      onResetClaim(p.id);
-                    }
-                  }}
-                >
-                  Reset claim
-                </button>
-              )}
-            </div>
-          </div>
-        );
-      })}
+      {players.map((p) => (
+        <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 0", borderBottom: "1px solid rgba(10,10,10,0.1)" }}>
+          <Portrait name={p.display_name} size={32} />
+          <div style={{ flex: 1, fontSize: 15 }}>{p.display_name}</div>
+          <button
+            className="btn-outline"
+            style={{ width: "auto", minHeight: "auto", padding: "6px 10px", fontSize: 12, border: "1.6px solid var(--line)" }}
+            onClick={() => {
+              const newName = prompt("New name", p.display_name);
+              if (newName && newName.trim() && newName.trim() !== p.display_name) onRenamePlayer(p.id, newName.trim());
+            }}
+          >
+            Edit name
+          </button>
+        </div>
+      ))}
 
       <p className="label" style={{ marginTop: 20 }}>
         Recent activity
