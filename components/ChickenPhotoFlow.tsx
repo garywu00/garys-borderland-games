@@ -75,7 +75,7 @@ export function ChickenPhotoFlow({
       <img
         src={photo}
         alt="Your chicken photo"
-        style={{ width: 240, height: 240, objectFit: "cover", border: "2px solid var(--line)" }}
+        style={{ width: 240, height: 240, objectFit: "cover", border: "2px solid var(--line)", filter: "grayscale(1) contrast(1.05)" }}
       />
       <p style={{ fontSize: 15, lineHeight: 1.6, textAlign: "center", color: "var(--muted)", maxWidth: 300 }}>
         Bring your phone back to Michelle. She&apos;ll mark you through once she&apos;s seen it in person.

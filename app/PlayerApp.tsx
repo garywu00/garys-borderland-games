@@ -962,7 +962,11 @@ function SelfieStep({ onDone }: { onDone: (photo: string | null) => void }) {
       <Stack>
         <p className="label">Looking good?</p>
         {/* eslint-disable-next-line @next/next/no-img-element -- local capture preview, no benefit from next/image here */}
-        <img src={photo} alt="Your selfie" style={{ width: 240, height: 240, objectFit: "cover", border: "2px solid var(--line)" }} />
+        <img
+          src={photo}
+          alt="Your selfie"
+          style={{ width: 240, height: 240, objectFit: "cover", border: "2px solid var(--line)", filter: "grayscale(1) contrast(1.05)" }}
+        />
         <button className="btn" style={{ width: "100%" }} onClick={() => onDone(photo)}>
           Use this photo
         </button>
@@ -1488,13 +1492,25 @@ function Round1Flow({
 
   // Ticks only during the 60-second selection window (matchup.deadline_at,
   // set server-side the instant both teams ready up) — was tracked all
-  // along but never actually rendered anywhere.
+  // along but never actually rendered anywhere. Also recomputes immediately
+  // on visibilitychange: a backgrounded/locked phone throttles or fully
+  // pauses setInterval, so without this, a device that was put down right
+  // before the deadline would sit on a stale "time left" reading — and
+  // never fire the auto-submit below — until whenever the browser next
+  // happened to resume the timer, rather than the instant it's reopened.
   const [now, setNow] = useState(() => Date.now());
   const autoSubmittedRef = useRef(false);
   useEffect(() => {
     if (!matchup || matchup.status !== "active") return;
     const interval = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(interval);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") setNow(Date.now());
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [matchup?.id, matchup?.status]);
 
   const mySubmitted = mySubmittedChoice !== null || locallySubmitted;
@@ -1505,15 +1521,27 @@ function Round1Flow({
   // Auto-submit at 0, mirroring TriviaFlow's timeout handling — honors
   // whatever this team was leaning toward (my own tap or my teammate's live
   // one), falling back to Share only if nobody had picked anything at all.
+  // On failure, un-claim the ref so the next tick (now/matchup will keep
+  // changing) retries instead of permanently giving up after one attempt.
   useEffect(() => {
     if (!matchup || mySubmitted || remainingMs === null || remainingMs > 0 || autoSubmittedRef.current) return;
     autoSubmittedRef.current = true;
     submitShareSteal(matchup.id, teamId, myChoice ?? teammateDraftChoice ?? "share", true)
       .then((result) => {
-        if (result.ok) setLocallySubmitted(true);
+        if (result.ok || result.reason === "already_submitted") {
+          setLocallySubmitted(true);
+        } else {
+          autoSubmittedRef.current = false;
+        }
       })
-      .catch(() => {});
-  }, [matchup, mySubmitted, remainingMs, teamId, myChoice, teammateDraftChoice]);
+      .catch(() => {
+        autoSubmittedRef.current = false;
+      });
+    // now (not remainingMs) drives retries: remainingMs is clamped to 0 and
+    // stops changing value once the deadline passes, so a retry after a
+    // failed attempt needs the raw ticking clock as a dependency, or the
+    // effect would never re-run once autoSubmittedRef is reset.
+  }, [matchup, mySubmitted, remainingMs, now, teamId, myChoice, teammateDraftChoice]);
 
   let content: React.ReactNode;
 
@@ -1636,13 +1664,19 @@ function Round1Flow({
               setSubmitting(true);
               try {
                 const result = await submitShareSteal(matchup.id, teamId, myChoice);
-                // Either way the team's choice is now locked in server-side
-                // (ours, or a partner's that beat us to it) — lock the UI
-                // immediately rather than waiting on realtime/poll to catch
-                // up, which is exactly the lag that let Submit look like it
-                // did nothing.
-                setLocallySubmitted(true);
-                if (!result.ok) notify("Your partner already submitted for your team.");
+                if (result.ok || result.reason === "already_submitted") {
+                  // Either way the team's choice is now locked in server-side
+                  // (ours, or a partner's that beat us to it) — lock the UI
+                  // immediately rather than waiting on realtime/poll to catch
+                  // up, which is exactly the lag that let Submit look like it
+                  // did nothing.
+                  setLocallySubmitted(true);
+                  if (!result.ok) notify("Your partner already submitted for your team.");
+                } else {
+                  notify("Couldn't submit — try again.");
+                }
+              } catch {
+                notify("Couldn't submit — check your connection and try again.");
               } finally {
                 setSubmitting(false);
               }
