@@ -21,12 +21,13 @@ import {
   addPlayer,
   resetPlayerClaim,
   undoFinalistConfirmation,
+  undoWinnerVerification,
   giveByeRound1,
   giveByeRound2,
 } from "@/lib/actions/manager";
 import { overrideTriviaResult } from "@/lib/actions/trivia";
 import { getTriviaQuestion } from "@/lib/game/trivia";
-import { FINALIST_SLOTS } from "@/lib/game/rules";
+import { FINALIST_SLOTS, GAME_COUNTDOWN_DURATION_MS } from "@/lib/game/rules";
 
 type Team = { id: string; name: string; hearts_cached: number; status: string; event_id: string; created_at: string };
 type Finalist = { team_id: string; slot: number };
@@ -69,6 +70,8 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
   const [countdownStartedAt, setCountdownStartedAt] = useState<string | null>(null);
   const [diamondsArrivals, setDiamondsArrivals] = useState<CheckpointArrival[]>([]);
   const [clubsArrivals, setClubsArrivals] = useState<CheckpointArrival[]>([]);
+  const [winnerTeamId, setWinnerTeamId] = useState<string | null>(null);
+  const [finalWaitingSince, setFinalWaitingSince] = useState<{ team_id: string; awarded_at: string }[]>([]);
   const [toast, setToastMsg] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [connected, setConnected] = useState(true);
@@ -120,6 +123,13 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
     setMatchups(m ?? []);
     const { data: ev } = await supabase.from("events").select("countdown_started_at").eq("status", "active").limit(1).maybeSingle();
     setCountdownStartedAt(ev?.countdown_started_at ?? null);
+    const { data: w } = await supabase.from("winner_results").select("team_id").eq("reversed", false).maybeSingle();
+    setWinnerTeamId(w?.team_id ?? null);
+    // diamond2 is awarded at the exact moment a team enters final_waiting —
+    // reused here purely as a timestamp to sort the arrival queue by, since
+    // there's no dedicated "entered final_waiting" marker.
+    const { data: fw } = await supabase.from("collected_cards").select("team_id, awarded_at").eq("card_code", "diamond2");
+    setFinalWaitingSince(fw ?? []);
   }, [supabase]);
 
   useEffect(() => {
@@ -136,6 +146,8 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
       .on("postgres_changes", { event: "*", schema: "public", table: "checkpoint_arrivals" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "matchups" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "events" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "winner_results" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "collected_cards" }, refresh)
       .subscribe((status) => setConnected(status === "SUBSCRIBED"));
     return () => {
       supabase.removeChannel(channel);
@@ -312,13 +324,22 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
         <SpadesView
           teams={teams}
           finalists={finalists}
+          winnerTeamId={winnerTeamId}
+          finalWaitingSince={finalWaitingSince}
+          now={now}
           onConfirmArrival={async (id) => {
             const result = await confirmArrival(id);
             notify(result.ok ? `Confirmed as Finalist #${result.slot}.` : "Slots are already full.");
           }}
           onVerifyWinner={async (id) => {
-            await verifyWinner(id);
-            notify("Winner verified.");
+            const result = await verifyWinner(id);
+            notify(result.ok ? "Winner verified." : "Someone's already been verified as the winner — undo that first.");
+          }}
+          onUndoWinner={async (id) => {
+            const team = teams.find((t) => t.id === id);
+            if (!team) return;
+            await undoWinnerVerification(team.event_id);
+            notify("Winner undone — you can mark the correct team now.");
           }}
           onUndoFinalist={async (id) => {
             const result = await undoFinalistConfirmation(id);
@@ -340,6 +361,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
           claims={claims}
           recentActions={recentActions}
           countdownStartedAt={countdownStartedAt}
+          now={now}
           onStartCountdown={async () => {
             const result = await startGameCountdown();
             notify(result.ok ? "Countdown started on every screen." : "Could not start — no active event found.");
@@ -405,7 +427,29 @@ function formatWait(sinceIso: string, now: number): string {
   return `waiting ${minutes} min`;
 }
 
-function TeamRow({ team, right, waitingSince, now }: { team: Team; right?: React.ReactNode; waitingSince?: string; now?: number }) {
+const STATUS_LABELS: Record<string, string> = {
+  round1: "Round 1 — Hearts",
+  round2: "Round 2 — Clubs",
+  round3: "Round 3 — Diamonds",
+  final_waiting: "Awaiting final checkpoint",
+  finalist: "Finalist",
+  non_finalist: "Non-finalist",
+  eliminated: "Eliminated",
+};
+
+function TeamRow({
+  team,
+  right,
+  waitingSince,
+  now,
+  showStatus,
+}: {
+  team: Team;
+  right?: React.ReactNode;
+  waitingSince?: string;
+  now?: number;
+  showStatus?: boolean;
+}) {
   const waitMs = waitingSince && now ? now - new Date(waitingSince).getTime() : 0;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 14, padding: 14, border: "1.6px solid var(--line)", marginBottom: 10 }}>
@@ -413,6 +457,7 @@ function TeamRow({ team, right, waitingSince, now }: { team: Team; right?: React
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: 17 }}>{team.name}</div>
         <div style={{ fontSize: 14 }}>♥ {team.hearts_cached}</div>
+        {showStatus && <div style={{ fontSize: 12, marginTop: 2, color: "var(--muted)" }}>{STATUS_LABELS[team.status] ?? team.status}</div>}
         {waitingSince && now && (
           <div style={{ fontSize: 12, marginTop: 2, color: waitMs > WAIT_WARNING_MS ? "var(--accent)" : "var(--muted)" }}>
             {formatWait(waitingSince, now)}
@@ -771,25 +816,61 @@ function MichelleReviewView({
 function SpadesView({
   teams,
   finalists,
+  winnerTeamId,
+  finalWaitingSince,
+  now,
   onConfirmArrival,
   onVerifyWinner,
+  onUndoWinner,
   onUndoFinalist,
 }: {
   teams: Team[];
   finalists: Finalist[];
+  winnerTeamId: string | null;
+  finalWaitingSince: { team_id: string; awarded_at: string }[];
+  now: number;
   onConfirmArrival: (id: string) => void;
   onVerifyWinner: (id: string) => void;
+  onUndoWinner: (id: string) => void;
   onUndoFinalist: (id: string) => void;
 }) {
-  const waiting = teams.filter((t) => t.status === "final_waiting");
+  const waitingSinceById = new Map(finalWaitingSince.map((f) => [f.team_id, f.awarded_at]));
+  const waiting = teams
+    .filter((t) => t.status === "final_waiting")
+    .sort((a, b) => (waitingSinceById.get(a.id) ?? "").localeCompare(waitingSinceById.get(b.id) ?? ""));
   const finalistTeams = finalists
     .map((f) => ({ ...f, team: teams.find((t) => t.id === f.team_id) }))
     .filter((f): f is Finalist & { team: Team } => !!f.team)
     .sort((a, b) => b.team.hearts_cached - a.team.hearts_cached || a.slot - b.slot);
+  const winnerTeam = winnerTeamId ? teams.find((t) => t.id === winnerTeamId) : null;
 
   return (
     <div>
       <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, textAlign: "center", marginBottom: 16 }}>Final Checkpoint — Round 4</h2>
+
+      {winnerTeam && (
+        <div style={{ border: "2px solid var(--accent)", padding: 16, marginBottom: 20 }}>
+          <p className="label" style={{ color: "var(--accent)", marginBottom: 10 }}>
+            🏆 Winner verified
+          </p>
+          <TeamRow
+            team={winnerTeam}
+            right={
+              <button
+                className="btn-outline"
+                style={{ width: "auto", minHeight: "auto", padding: "8px 10px", fontSize: 12, border: "1.6px solid var(--accent)", color: "var(--accent)" }}
+                onClick={() => {
+                  if (confirm(`Undo ${winnerTeam.name} as the winner? This clears the result so you can mark the correct team.`)) {
+                    onUndoWinner(winnerTeam.id);
+                  }
+                }}
+              >
+                Undo winner
+              </button>
+            }
+          />
+        </div>
+      )}
 
       <p className="label">
         Top {FINALIST_SLOTS} — Finalists ({finalists.length} / {FINALIST_SLOTS})
@@ -801,9 +882,18 @@ function SpadesView({
           team={f.team}
           right={
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <button className="btn" style={{ width: "auto", minHeight: "auto", padding: "10px 16px", fontSize: 13 }} onClick={() => onVerifyWinner(f.team.id)}>
-                Mark winner
-              </button>
+              {f.team.id === winnerTeamId ? (
+                <p style={{ fontSize: 12, color: "var(--accent)", textAlign: "center", margin: 0 }}>Winner</p>
+              ) : (
+                <button
+                  className="btn"
+                  disabled={!!winnerTeamId}
+                  style={{ width: "auto", minHeight: "auto", padding: "10px 16px", fontSize: 13 }}
+                  onClick={() => onVerifyWinner(f.team.id)}
+                >
+                  {winnerTeamId ? "Winner already set" : "Mark winner"}
+                </button>
+              )}
               <button
                 className="btn-outline"
                 style={{ width: "auto", minHeight: "auto", padding: "6px 10px", fontSize: 12, border: "1.6px solid var(--accent)", color: "var(--accent)" }}
@@ -826,6 +916,8 @@ function SpadesView({
         <TeamRow
           key={t.id}
           team={t}
+          waitingSince={waitingSinceById.get(t.id)}
+          now={now}
           right={
             <button
               className="btn"
@@ -848,6 +940,7 @@ function OverviewView({
   claims,
   recentActions,
   countdownStartedAt,
+  now,
   onStartCountdown,
   onCancelCountdown,
   onExpediteCountdown,
@@ -863,6 +956,7 @@ function OverviewView({
   claims: Claim[];
   recentActions: ActivityEntry[];
   countdownStartedAt: string | null;
+  now: number;
   onStartCountdown: () => void;
   onCancelCountdown: () => void;
   onExpediteCountdown: () => void;
@@ -877,42 +971,51 @@ function OverviewView({
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [newPlayerName, setNewPlayerName] = useState("");
 
+  // Once the countdown has actually elapsed the game is genuinely underway
+  // (players are past the "not started"/countdown gate and into selfies and
+  // pairing) — the card has nothing left to do at that point, so it's just
+  // clutter on a screen a manager is checking constantly. It reappears on
+  // its own if a manager resets the game (which nulls countdownStartedAt).
+  const countdownElapsed = countdownStartedAt ? now - new Date(countdownStartedAt).getTime() >= GAME_COUNTDOWN_DURATION_MS : false;
+
   return (
     <div>
       <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, textAlign: "center", marginBottom: 16 }}>Overview</h2>
 
-      <div style={{ border: "1.6px solid var(--line)", padding: 16, marginBottom: 20 }}>
-        <p className="label" style={{ marginBottom: 10 }}>
-          Pre-game countdown
-        </p>
-        {countdownStartedAt ? (
-          <>
-            <p style={{ fontSize: 14, color: "var(--muted)", marginBottom: 10 }}>
-              Running on every screen — 3 minutes from when it was started. Players can&apos;t take a selfie or
-              pair up until it reaches zero.
-            </p>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn" style={{ width: "100%" }} onClick={onExpediteCountdown}>
-                Skip to zero
+      {!countdownElapsed && (
+        <div style={{ border: "1.6px solid var(--line)", padding: 16, marginBottom: 20 }}>
+          <p className="label" style={{ marginBottom: 10 }}>
+            Pre-game countdown
+          </p>
+          {countdownStartedAt ? (
+            <>
+              <p style={{ fontSize: 14, color: "var(--muted)", marginBottom: 10 }}>
+                Running on every screen — 3 minutes from when it was started. Players can&apos;t take a selfie or
+                pair up until it reaches zero.
+              </p>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn" style={{ width: "100%" }} onClick={onExpediteCountdown}>
+                  Skip to zero
+                </button>
+                <button className="btn btn-outline" style={{ width: "100%" }} onClick={onCancelCountdown}>
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p style={{ fontSize: 14, color: "var(--muted)", marginBottom: 10 }}>
+                Until you hit this, everyone just sees a "game not started" screen — no selfies or pairing yet. This
+                sends everyone straight to a 3-minute countdown, wherever they are — send the link, then hit this
+                once you start explaining the rules.
+              </p>
+              <button className="btn" style={{ width: "100%" }} onClick={onStartCountdown}>
+                Start game
               </button>
-              <button className="btn btn-outline" style={{ width: "100%" }} onClick={onCancelCountdown}>
-                Cancel
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <p style={{ fontSize: 14, color: "var(--muted)", marginBottom: 10 }}>
-              Until you hit this, everyone just sees a "game not started" screen — no selfies or pairing yet. This
-              sends everyone straight to a 3-minute countdown, wherever they are — send the link, then hit this
-              once you start explaining the rules.
-            </p>
-            <button className="btn" style={{ width: "100%" }} onClick={onStartCountdown}>
-              Start game
-            </button>
-          </>
-        )}
-      </div>
+            </>
+          )}
+        </div>
+      )}
 
       <p className="label">All teams ({teams.length})</p>
       {teams.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>No teams yet.</p>}
@@ -923,6 +1026,7 @@ function OverviewView({
           <TeamRow
             key={t.id}
             team={t}
+            showStatus
             right={
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <button

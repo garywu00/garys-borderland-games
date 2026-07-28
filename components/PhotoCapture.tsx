@@ -18,27 +18,26 @@ export function PhotoCapture({
   mirror?: boolean;
 }) {
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
-  const [streaming, setStreaming] = useState(false);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     if (!videoEl) return;
     let stream: MediaStream | null = null;
+    setStatus("loading");
     navigator.mediaDevices
       ?.getUserMedia({ video: { facingMode: "user" } })
       .then((s) => {
         stream = s;
         videoEl.srcObject = s;
-        setStreaming(true);
+        setStatus("ready");
       })
-      .catch(() => setStreaming(false));
+      .catch(() => setStatus("error"));
     return () => stream?.getTracks().forEach((t) => t.stop());
-  }, [videoEl]);
+  }, [videoEl, retryKey]);
 
   function capture() {
-    if (!videoEl || !streaming) {
-      onSkip?.();
-      return;
-    }
+    if (!videoEl || status !== "ready") return;
     const canvas = document.createElement("canvas");
     canvas.width = 240;
     canvas.height = 240;
@@ -56,7 +55,27 @@ export function PhotoCapture({
   return (
     <>
       <p className="label">{label}</p>
-      <div style={{ width: 240, height: 240, border: "2px solid var(--line)", background: "var(--portrait-bg)", overflow: "hidden" }}>
+      <div
+        style={{
+          width: 240,
+          height: 240,
+          border: "2px solid var(--line)",
+          background: "var(--portrait-bg)",
+          overflow: "hidden",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          textAlign: "center",
+          padding: status !== "ready" ? 16 : 0,
+        }}
+      >
+        {status === "loading" && <p style={{ fontSize: "var(--fs-md)", color: "var(--muted)" }}>Requesting camera access…</p>}
+        {status === "error" && (
+          <p style={{ fontSize: "var(--fs-md)", color: "var(--muted)" }}>
+            Camera unavailable. Check that you&apos;ve allowed camera access for this site, or have your partner take
+            it from their phone instead.
+          </p>
+        )}
         <video
           ref={setVideoEl}
           playsInline
@@ -68,13 +87,19 @@ export function PhotoCapture({
             objectFit: "cover",
             filter: "grayscale(1)",
             transform: mirror ? "scaleX(-1)" : undefined,
-            display: streaming ? "block" : "none",
+            display: status === "ready" ? "block" : "none",
           }}
         />
       </div>
-      <button className="btn" style={{ width: "100%" }} onClick={capture}>
-        {buttonLabel}
-      </button>
+      {status === "error" ? (
+        <button className="btn" style={{ width: "100%" }} onClick={() => setRetryKey((k) => k + 1)}>
+          Try again
+        </button>
+      ) : (
+        <button className="btn" style={{ width: "100%" }} disabled={status !== "ready"} onClick={capture}>
+          {buttonLabel}
+        </button>
+      )}
       {onSkip && (
         <button className="btn btn-outline" style={{ width: "100%" }} onClick={onSkip}>
           {skipLabel}

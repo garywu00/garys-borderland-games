@@ -90,7 +90,10 @@ export function TriviaFlow({
   useEffect(() => {
     if (!attempt || attempt.submitted_at || remainingMs > 0 || autoSubmittedRef.current) return;
     autoSubmittedRef.current = true;
-    submitTriviaAnswer(teamId, roundNumber, answer);
+    // Best-effort — if this fails (dropped connection right at the buzzer),
+    // the Submit button below is still live and un-timed-out, so the player
+    // can just retry manually instead of being stuck with no path forward.
+    submitTriviaAnswer(teamId, roundNumber, answer).catch(() => {});
   }, [attempt, remainingMs, teamId, roundNumber, answer]);
 
   if (attempt === undefined) return null;
@@ -162,6 +165,8 @@ export function TriviaFlow({
             try {
               const result = await submitTriviaAnswer(teamId, roundNumber, answer);
               if (!result.ok) notify("Already submitted.");
+            } catch {
+              notify("Couldn't submit — check your connection and try again.");
             } finally {
               setSubmitting(false);
             }

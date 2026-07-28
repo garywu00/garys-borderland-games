@@ -48,10 +48,9 @@ export type Matchup = {
 export type ShareStealSubmission = { team_id: string; choice: ShareStealChoice };
 
 const SHARE_STEAL_RULES_COPY =
-  "You'll face a pair chosen at random — watching you as closely as you watch them. Without a word between you, " +
-  "decide: Share, or Steal. Both Share, and each pair gains 1 heart. One Steals while the other Shares, and the " +
-  "thief walks away with 2 hearts — the generous pair gets nothing. Both Steal, and you both pay for it: 1 heart " +
-  "lost, each.";
+  "You'll be paired up against a random pair. Find them and get ready to share, or steal. If you both choose " +
+  "share, each pair gains 1 heart. If just one of you steals, that pair gains 2 hearts and the other gets 0. " +
+  "However, if both of you steal you both lose 1 heart. Once you're ready you'll be assigned your pair to find.";
 
 const LOCAL_KEY = "gbb_player_local";
 
@@ -94,6 +93,31 @@ function savePostPairingSeenTeamId(teamId: string) {
   }
 }
 
+// Same durability problem as postPairingSeenTeamId, for the Share/Steal
+// reveal: tracking "have I seen this" with a live-transition ref instead of
+// a persisted value meant a page load that landed on an *already*-resolved
+// matchup (e.g. reloading right as your partner's submission resolved it)
+// never got flagged as "new" — the reveal, and its countdown, just silently
+// never appeared. Keying off matchup id (not team id) since a team only
+// ever has one Round 1 matchup.
+const REVEAL_SEEN_KEY = "gbb_reveal_seen_matchup_id";
+
+function loadRevealSeenMatchupId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return localStorage.getItem(REVEAL_SEEN_KEY);
+  } catch {
+    return null;
+  }
+}
+function saveRevealSeenMatchupId(matchupId: string) {
+  try {
+    localStorage.setItem(REVEAL_SEEN_KEY, matchupId);
+  } catch {
+    // ignore
+  }
+}
+
 export function PlayerApp({ eventId }: { eventId: string }) {
   const supabase = createClient();
   const [ready, setReadyState] = useState(false);
@@ -107,9 +131,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   const [invites, setInvites] = useState<Invite[]>([]);
   const [matchup, setMatchup] = useState<Matchup | null>(null);
   const [shareStealSubmissions, setShareStealSubmissions] = useState<ShareStealSubmission[]>([]);
-  const [revealMatchupId, setRevealMatchupId] = useState<string | null>(null);
-  const [revealDismissed, setRevealDismissed] = useState(true);
-  const prevMatchupStatusRef = useRef<string | null>(null);
+  const [revealSeenMatchupId, setRevealSeenMatchupId] = useState<string | null>(null);
   const [congrats, setCongrats] = useState<"round2pass" | "round3approved" | null>(null);
   const prevTeamStatusRef = useRef<string | null>(null);
   const prevHeartsRef = useRef<number | null>(null);
@@ -145,6 +167,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
       setPlayerId(local.playerId);
       setTeamId(local.teamId);
       setPostPairingSeenTeamId(loadPostPairingSeenTeamId());
+      setRevealSeenMatchupId(loadRevealSeenMatchupId());
       setReadyState(true);
     })();
   }, [supabase]);
@@ -286,20 +309,6 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   useEffect(() => {
     refreshMatchup();
   }, [refreshMatchup]);
-
-  // Detects a LIVE transition into "resolved" (as opposed to loading an
-  // already-resolved matchup, e.g. on a page refresh well after Round 1) —
-  // only the former should trigger the dramatic reveal screen, so a reload
-  // during round2+ doesn't resurrect a reveal the player already saw.
-  useEffect(() => {
-    if (!matchup) return;
-    const prevStatus = prevMatchupStatusRef.current;
-    if (matchup.status === "resolved" && prevStatus && prevStatus !== "resolved") {
-      setRevealMatchupId(matchup.id);
-      setRevealDismissed(false);
-    }
-    prevMatchupStatusRef.current = matchup.status;
-  }, [matchup]);
 
   // Same "only a live transition, not a page-load state" rule as the
   // reveal screen above — a round2 pass is disambiguated from a mutual
@@ -563,8 +572,12 @@ export function PlayerApp({ eventId }: { eventId: string }) {
 
   // ---------- Share/Steal reveal (takes over the whole screen; gated on the
   // matchup, not team.status, since status advances synchronously the
-  // instant resolution happens) ----------
-  if (matchup && matchup.id === revealMatchupId && matchup.status === "resolved" && !revealDismissed && opponentTeam) {
+  // instant resolution happens). Uses a persisted "seen" id rather than a
+  // live-transition ref so a page load that lands directly on an
+  // already-resolved matchup (e.g. reloading right as the other partner's
+  // submission resolves it) still shows the reveal instead of skipping
+  // straight to the static "resolved" text with no countdown or outcome. ----------
+  if (matchup && matchup.status === "resolved" && matchup.id !== revealSeenMatchupId && opponentTeam) {
     return (
       <Screen startsAt={eventStartsAt} connected={connected}>
         <ShareStealReveal
@@ -572,7 +585,10 @@ export function PlayerApp({ eventId }: { eventId: string }) {
           opponentTeam={opponentTeam}
           matchup={matchup}
           submissions={shareStealSubmissions}
-          onDismiss={() => setRevealDismissed(true)}
+          onDismiss={() => {
+            saveRevealSeenMatchupId(matchup.id);
+            setRevealSeenMatchupId(matchup.id);
+          }}
         />
         <Toast msg={toast} />
       </Screen>
@@ -923,9 +939,27 @@ export function LeaderboardRow({ team, highlight, rank }: { team: Team; highligh
 }
 
 function SelfieStep({ onDone }: { onDone: (photo: string | null) => void }) {
+  const [photo, setPhoto] = useState<string | null>(null);
+
+  if (photo) {
+    return (
+      <Stack>
+        <p className="label">Looking good?</p>
+        {/* eslint-disable-next-line @next/next/no-img-element -- local capture preview, no benefit from next/image here */}
+        <img src={photo} alt="Your selfie" style={{ width: 240, height: 240, objectFit: "cover", border: "2px solid var(--line)" }} />
+        <button className="btn" style={{ width: "100%" }} onClick={() => onDone(photo)}>
+          Use this photo
+        </button>
+        <button className="btn btn-outline" style={{ width: "100%" }} onClick={() => setPhoto(null)}>
+          Retake
+        </button>
+      </Stack>
+    );
+  }
+
   return (
     <Stack>
-      <PhotoCapture label="Smile :)" onCapture={onDone} onSkip={() => onDone(null)} />
+      <PhotoCapture label="Smile :)" onCapture={(dataUrl) => setPhoto(dataUrl)} onSkip={() => onDone(null)} />
     </Stack>
   );
 }
@@ -1390,6 +1424,8 @@ function Round1Flow({
   const [rulesSeen, setRulesSeen] = useState(false);
   const [rulesModalOpen, setRulesModalOpen] = useState(false);
   const [opponentPhotos, setOpponentPhotos] = useState<(string | null)[]>([]);
+  const [teammateDraftChoice, setTeammateDraftChoice] = useState<"share" | "steal" | null>(null);
+  const draftChannelRef = useRef<ReturnType<ReturnType<typeof createClient>["channel"]> | null>(null);
 
   useEffect(() => {
     if (!opponentTeam) {
@@ -1398,6 +1434,33 @@ function Round1Flow({
     }
     getTeamPortraits(opponentTeam.id).then((portraits) => setOpponentPhotos(portraits.map((p) => p.url)));
   }, [opponentTeam]);
+
+  // Ephemeral, not persisted — a lightweight broadcast so a still-deciding
+  // teammate's tap shows up on their partner's screen before either of them
+  // hits Submit, instead of each device only ever reflecting its own local
+  // tap. The real, authoritative choice is still whatever gets submitted;
+  // this is purely "here's what my partner is currently leaning toward."
+  useEffect(() => {
+    if (!matchup || matchup.status !== "active") return;
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`share-steal-draft-${matchup.id}`)
+      .on("broadcast", { event: "draft-choice" }, ({ payload }) => {
+        if (payload?.teamId === teamId) return;
+        if (payload?.choice === "share" || payload?.choice === "steal") setTeammateDraftChoice(payload.choice);
+      })
+      .subscribe();
+    draftChannelRef.current = channel;
+    return () => {
+      supabase.removeChannel(channel);
+      draftChannelRef.current = null;
+    };
+  }, [matchup?.id, matchup?.status, teamId]);
+
+  useEffect(() => {
+    if (!myChoice) return;
+    draftChannelRef.current?.send({ type: "broadcast", event: "draft-choice", payload: { teamId, choice: myChoice } });
+  }, [myChoice, teamId]);
 
   let content: React.ReactNode;
 
@@ -1454,32 +1517,51 @@ function Round1Flow({
     const effectiveChoice = mySubmittedChoice ?? myChoice;
     content = (
       <Stack>
+        {opponentTeam && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: -4 }}>
+            <PortraitPair names={opponentTeam.name.split(" + ")} photos={opponentPhotos} size={36} />
+            <div>
+              <p className="label" style={{ marginBottom: 0 }}>
+                Facing
+              </p>
+              <div style={{ fontSize: "var(--fs-body)" }}>{opponentTeam.name}</div>
+            </div>
+          </div>
+        )}
         <p className="label">{mySubmitted ? "Choice locked in" : "Select your action"}</p>
         {mySubmitted && (
           <p style={{ fontSize: "var(--fs-body)", color: "var(--muted)", textAlign: "center" }}>
             Your pair already chose — waiting for the other team.
           </p>
         )}
+        {!mySubmitted && !myChoice && teammateDraftChoice && (
+          <p style={{ fontSize: "var(--fs-body)", color: "var(--muted)", textAlign: "center" }}>
+            Your partner is currently leaning: {teammateDraftChoice === "share" ? "Share" : "Steal"}
+          </p>
+        )}
         <div style={{ display: "flex", gap: 16, width: "100%" }}>
-          {(["share", "steal"] as const).map((choice) => (
-            <button
-              key={choice}
-              className="btn-outline"
-              aria-pressed={effectiveChoice === choice}
-              disabled={mySubmitted}
-              style={{
-                flex: 1,
-                border: "2px solid var(--line)",
-                padding: "36px 12px",
-                background: effectiveChoice === choice ? "var(--btn-bg)" : "transparent",
-                color: effectiveChoice === choice ? "var(--btn-fg)" : "var(--fg)",
-                cursor: mySubmitted ? "not-allowed" : "pointer",
-              }}
-              onClick={() => setMyChoice(choice)}
-            >
-              {choice === "share" ? "Share" : "Steal"}
-            </button>
-          ))}
+          {(["share", "steal"] as const).map((choice) => {
+            const isTeammateHint = !mySubmitted && !myChoice && teammateDraftChoice === choice;
+            return (
+              <button
+                key={choice}
+                className="btn-outline"
+                aria-pressed={effectiveChoice === choice}
+                disabled={mySubmitted}
+                style={{
+                  flex: 1,
+                  border: isTeammateHint ? "2px solid var(--accent)" : "2px solid var(--line)",
+                  padding: "36px 12px",
+                  background: effectiveChoice === choice ? "var(--btn-bg)" : "transparent",
+                  color: effectiveChoice === choice ? "var(--btn-fg)" : "var(--fg)",
+                  cursor: mySubmitted ? "not-allowed" : "pointer",
+                }}
+                onClick={() => setMyChoice(choice)}
+              >
+                {choice === "share" ? "Share" : "Steal"}
+              </button>
+            );
+          })}
         </div>
         {!mySubmitted && (
           <button
