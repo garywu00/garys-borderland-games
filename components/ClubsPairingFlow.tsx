@@ -146,6 +146,8 @@ export function ClubsPairingFlow({
             try {
               const result = await voteClubsFail(teamId);
               if (!result.ok) notify("Could not submit — try again.");
+            } catch {
+              notify("Couldn't submit — check your connection and try again.");
             } finally {
               setVoting(false);
             }

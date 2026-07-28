@@ -144,6 +144,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   const [uiStep, setUiStep] = useState<"landing" | "selfie" | "select-name" | "confirm">("landing");
   const [selfie, setSelfie] = useState<string | null>(null);
   const [claimPinShown, setClaimPinShown] = useState<string | null>(null);
+  const [claiming, setClaiming] = useState(false);
   const [myChoice, setMyChoice] = useState<"share" | "steal" | null>(null);
   const [toast, setToastMsg] = useState<string | null>(null);
   const [eventStartsAt, setEventStartsAt] = useState<string | null>(null);
@@ -542,18 +543,26 @@ export function PlayerApp({ eventId }: { eventId: string }) {
             <button
               className="btn"
               style={{ width: "100%" }}
+              disabled={claiming}
               onClick={async () => {
-                const result = await claimPlayer(me.id);
-                if (result.ok) {
-                  if (selfie) await uploadSelfie(me.id, selfie);
-                  setClaimPinShown(result.recoveryPin);
-                } else {
-                  notify("That name was just claimed by someone else.");
-                  setUiStep("select-name");
+                setClaiming(true);
+                try {
+                  const result = await claimPlayer(me.id);
+                  if (result.ok) {
+                    if (selfie) await uploadSelfie(me.id, selfie);
+                    setClaimPinShown(result.recoveryPin);
+                  } else {
+                    notify("That name was just claimed by someone else.");
+                    setUiStep("select-name");
+                  }
+                } catch {
+                  notify("Couldn't submit — check your connection and try again.");
+                } finally {
+                  setClaiming(false);
                 }
               }}
             >
-              Yes, continue
+              {claiming ? "Just a sec…" : "Yes, continue"}
             </button>
             <button className="btn btn-outline" style={{ width: "100%" }} onClick={() => setUiStep("select-name")}>
               Not me
@@ -1067,6 +1076,8 @@ function PairingLobby({
               const result = await acceptInvite(invite.id);
               if (result.ok) onPaired(result.teamId);
               else notify("That invite is no longer available.");
+            } catch {
+              notify("Couldn't submit — check your connection and try again.");
             } finally {
               setPending(false);
             }
@@ -1075,6 +1086,8 @@ function PairingLobby({
             setPending(true);
             try {
               await declineInvite(invite.id);
+            } catch {
+              notify("Couldn't submit — check your connection and try again.");
             } finally {
               setPending(false);
             }
@@ -1095,6 +1108,8 @@ function PairingLobby({
             setPending(true);
             try {
               await cancelInvite(outgoing.id);
+            } catch {
+              notify("Couldn't submit — check your connection and try again.");
             } finally {
               setPending(false);
             }
@@ -1133,6 +1148,8 @@ function PairingLobby({
               try {
                 const result = await sendInvite(me.id, p.id);
                 if (!result.ok) notify("You already have an outgoing invite.");
+              } catch {
+                notify("Couldn't submit — check your connection and try again.");
               } finally {
                 setPending(false);
               }
@@ -1301,6 +1318,8 @@ function AddThirdPlayer({
                 } else {
                   notify(result.reason === "team_full" ? "Your team is already full." : "Could not add that player.");
                 }
+              } catch {
+                notify("Couldn't submit — check your connection and try again.");
               } finally {
                 setPendingId(null);
               }
@@ -1456,6 +1475,7 @@ function Round1Flow({
   notify: (msg: string) => void;
 }) {
   const [submitting, setSubmitting] = useState(false);
+  const [readyPending, setReadyPending] = useState(false);
   // mySubmittedChoice only reflects reality once the parent's realtime
   // subscription (or its poll fallback) round-trips — which can lag by a
   // beat, or longer on flaky event wifi. Setting this the instant our own
@@ -1597,8 +1617,22 @@ function Round1Flow({
           </>
         )}
         {!myReady ? (
-          <button className="btn" style={{ width: "100%" }} onClick={() => setReady(matchup.id, teamId)}>
-            I&apos;m ready
+          <button
+            className="btn"
+            style={{ width: "100%" }}
+            disabled={readyPending}
+            onClick={async () => {
+              setReadyPending(true);
+              try {
+                await setReady(matchup.id, teamId);
+              } catch {
+                notify("Couldn't submit — check your connection and try again.");
+              } finally {
+                setReadyPending(false);
+              }
+            }}
+          >
+            {readyPending ? "Just a sec…" : "I'm ready"}
           </button>
         ) : (
           <p style={{ color: "var(--muted)", fontSize: "var(--fs-md)" }}>Waiting for {opponentTeam?.name ?? "opponents"} to be ready…</p>

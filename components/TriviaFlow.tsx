@@ -119,6 +119,8 @@ export function TriviaFlow({
               const result = await startTrivia(teamId, roundNumber);
               if (result.ok) setAttempt(result.attempt);
               else notify("Could not start — try again.");
+            } catch {
+              notify("Couldn't submit — check your connection and try again.");
             } finally {
               setStarting(false);
             }
