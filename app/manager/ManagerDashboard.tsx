@@ -15,7 +15,6 @@ import {
   startGameCountdown,
   cancelGameCountdown,
   expediteGameCountdown,
-  markArrivedRound2,
   updatePlayerName,
   deleteTeam,
   addPlayer,
@@ -67,7 +66,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
   const [matchups, setMatchups] = useState<Matchup[]>([]);
   const [countdownStartedAt, setCountdownStartedAt] = useState<string | null>(null);
   const [diamondsArrivals, setDiamondsArrivals] = useState<CheckpointArrival[]>([]);
-  const [clubsArrivals, setClubsArrivals] = useState<CheckpointArrival[]>([]);
+  const [clubsEnteredSince, setClubsEnteredSince] = useState<{ team_id: string; awarded_at: string }[]>([]);
   const [winnerTeamId, setWinnerTeamId] = useState<string | null>(null);
   const [finalWaitingSince, setFinalWaitingSince] = useState<{ team_id: string; awarded_at: string }[]>([]);
   const [toast, setToastMsg] = useState<string | null>(null);
@@ -113,8 +112,11 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
     setClubsPairings(cp ?? []);
     const { data: da } = await supabase.from("checkpoint_arrivals").select("team_id, checkpoint, arrived_at").eq("checkpoint", "diamonds");
     setDiamondsArrivals(da ?? []);
-    const { data: ca } = await supabase.from("checkpoint_arrivals").select("team_id, checkpoint, arrived_at").eq("checkpoint", "clubs");
-    setClubsArrivals(ca ?? []);
+    // heart4 is awarded at the exact moment a team enters Round 2 — reused
+    // purely as a wait-time timestamp, same trick as diamond2/final_waiting
+    // below, so Ajan's queue sorts oldest-first with zero extra check-in step.
+    const { data: ce } = await supabase.from("collected_cards").select("team_id, awarded_at").eq("card_code", "heart4");
+    setClubsEnteredSince(ce ?? []);
     const { data: m } = await supabase.from("matchups").select("id, team_a_id, team_b_id, status, deadline_at").neq("status", "resolved");
     setMatchups(m ?? []);
     const { data: ev } = await supabase.from("events").select("countdown_started_at").eq("status", "active").limit(1).maybeSingle();
@@ -276,12 +278,8 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
         <ClubsView
           teams={teams.filter((t) => t.status === "round2")}
           pairings={clubsPairings}
-          arrivals={clubsArrivals}
+          enteredSince={clubsEnteredSince}
           now={now}
-          onMarkArrived={async (id) => {
-            const result = await markArrivedRound2(id);
-            notify(result.ok ? "Marked arrived." : "Could not mark arrived.");
-          }}
           onPair={async (a, b) => {
             const result = await pairClubsTeams(a, b);
             notify(result.ok ? "Paired up." : "Could not pair — check both teams are still at Round 2.");
@@ -544,8 +542,7 @@ function HeartsView({
 function ClubsView({
   teams,
   pairings,
-  arrivals,
-  onMarkArrived,
+  enteredSince,
   onPair,
   onSolo,
   onMarkPass,
@@ -555,8 +552,7 @@ function ClubsView({
 }: {
   teams: Team[];
   pairings: ClubsPairing[];
-  arrivals: CheckpointArrival[];
-  onMarkArrived: (id: string) => void;
+  enteredSince: { team_id: string; awarded_at: string }[];
   onPair: (a: string, b: string) => void;
   onSolo: (teamId: string) => void;
   onMarkPass: (pairingId: string) => void;
@@ -566,40 +562,26 @@ function ClubsView({
 }) {
   const [pairingTeam, setPairingTeam] = useState<Team | null>(null);
   const pairedTeamIds = new Set(pairings.flatMap((p) => [p.team_a_id, p.team_b_id]));
-  const unpaired = teams.filter((t) => !pairedTeamIds.has(t.id));
-  const arrivedAtById = new Map(arrivals.map((a) => [a.team_id, a.arrived_at]));
-  const notArrived = unpaired.filter((t) => !arrivedAtById.has(t.id));
-  const arrived = unpaired
-    .filter((t) => arrivedAtById.has(t.id))
-    .sort((a, b) => arrivedAtById.get(a.id)!.localeCompare(arrivedAtById.get(b.id)!));
+  // No arrival-marking step — Ajan pairs teams up the moment he sees them in
+  // person, no extra tap required. Wait-time ordering still works, sourced
+  // passively from when each team was awarded the heart4 card (the exact
+  // moment they entered Round 2), rather than a dedicated check-in action.
+  const enteredAtById = new Map(enteredSince.map((e) => [e.team_id, e.awarded_at]));
+  const unpaired = teams
+    .filter((t) => !pairedTeamIds.has(t.id))
+    .sort((a, b) => (enteredAtById.get(a.id) ?? "").localeCompare(enteredAtById.get(b.id) ?? ""));
 
   return (
     <div>
       <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, textAlign: "center", marginBottom: 16 }}>8 of Clubs Game</h2>
 
-      <p className="label">Not yet arrived ({notArrived.length})</p>
-      {notArrived.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>Every team here has checked in.</p>}
-      {notArrived.map((t) => (
+      <p className="label">Unpaired teams ({unpaired.length})</p>
+      {unpaired.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>No unpaired teams at the Clubs checkpoint.</p>}
+      {unpaired.map((t) => (
         <TeamRow
           key={t.id}
           team={t}
-          right={
-            <button className="btn" style={{ width: "auto", minHeight: "auto", padding: "10px 16px", fontSize: 14 }} onClick={() => onMarkArrived(t.id)}>
-              Mark arrived
-            </button>
-          }
-        />
-      ))}
-
-      <p className="label" style={{ marginTop: 20 }}>
-        Arrived — ready to pair ({arrived.length})
-      </p>
-      {arrived.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>No teams checked in yet.</p>}
-      {arrived.map((t) => (
-        <TeamRow
-          key={t.id}
-          team={t}
-          waitingSince={arrivedAtById.get(t.id)}
+          waitingSince={enteredAtById.get(t.id)}
           now={now}
           right={
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -672,7 +654,7 @@ function ClubsView({
 
       {pairingTeam && (
         <PairTeamsModal
-          teams={arrived}
+          teams={unpaired}
           selectedTeam={pairingTeam}
           onClose={() => setPairingTeam(null)}
           onConfirm={(otherId) => {

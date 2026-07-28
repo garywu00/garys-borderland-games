@@ -591,7 +591,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
       )}
       {team.status === "final_waiting" && (
         <TriviaFlow teamId={teamId} roundNumber={3} notify={notify}>
-          <CheckpointWait label="The last checkpoint" personName="Gary" direction="ONE LAST STOP. FIND GARY." />
+          <CheckpointWait label="The last checkpoint" personName="Gary" direction="FIND GARY AT FOCAL POINT BREWERY." />
         </TriviaFlow>
       )}
       {team.status === "eliminated" && (

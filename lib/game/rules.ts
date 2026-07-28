@@ -39,7 +39,7 @@ export const CARD_META = {
   },
   club8: {
     label: "8 of Clubs",
-    direction: "HEAD TO THE PEPSI-COLA SIGN. FIND MICHELLE.",
+    direction: "HEAD TO THE NEAREST PLACE TO CLIMB. FIND MICHELLE.",
     svg: "/cards/club8.svg",
   },
   diamond2: {

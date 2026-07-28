@@ -22,8 +22,8 @@ export function ClubsPairingFlow({
 }) {
   const supabase = createClient();
   const [pairing, setPairing] = useState<Pairing | null | undefined>(undefined);
-  const [opponent, setOpponent] = useState<TeamInfo | null>(null);
-  const [opponentPhoto, setOpponentPhoto] = useState<string | null>(null);
+  const [partner, setPartner] = useState<TeamInfo | null>(null);
+  const [partnerPhoto, setPartnerPhoto] = useState<string | null>(null);
   const [myVoted, setMyVoted] = useState(false);
   const [voting, setVoting] = useState(false);
 
@@ -72,26 +72,26 @@ export function ClubsPairingFlow({
 
   useEffect(() => {
     if (!pairing) {
-      setOpponent(null);
+      setPartner(null);
       setMyVoted(false);
       return;
     }
     if (pairing.team_b_id) {
-      const opponentId = pairing.team_a_id === teamId ? pairing.team_b_id : pairing.team_a_id;
+      const partnerId = pairing.team_a_id === teamId ? pairing.team_b_id : pairing.team_a_id;
       supabase
         .from("teams")
         .select("id, name, hearts_cached")
-        .eq("id", opponentId)
+        .eq("id", partnerId)
         .maybeSingle()
-        .then(({ data }) => setOpponent(data ?? null));
-      getTeamPhotoUrl(opponentId).then(setOpponentPhoto);
+        .then(({ data }) => setPartner(data ?? null));
+      getTeamPhotoUrl(partnerId).then(setPartnerPhoto);
     }
     refreshMyVote(pairing.id);
   }, [pairing, teamId, supabase, refreshMyVote]);
 
   if (pairing === undefined) return null;
 
-  if (!pairing || (!isSolo && !opponent)) {
+  if (!pairing || (!isSolo && !partner)) {
     return (
       <Stack>
         <p className="label">{waitingLabel}</p>
@@ -99,7 +99,7 @@ export function ClubsPairingFlow({
           <p style={{ fontSize: 19, textAlign: "center", fontWeight: 600, lineHeight: 1.5 }}>{waitingDirection}</p>
         </div>
         <p style={{ fontSize: 15, lineHeight: 1.6, textAlign: "center", color: "var(--muted)", maxWidth: 300 }}>
-          Ajan is choosing who you&apos;ll face. Wait here.
+          Ajan is choosing who you&apos;ll team up with. Wait here.
         </p>
       </Stack>
     );
@@ -116,14 +116,14 @@ export function ClubsPairingFlow({
           </p>
         </>
       ) : (
-        opponent && (
+        partner && (
           <>
-            <p className="label">Your opponents</p>
+            <p className="label">Your partners for this challenge</p>
             <div className="pop-in">
-              <Portrait name={opponent.name} photoUrl={opponentPhoto} size={104} />
+              <Portrait name={partner.name} photoUrl={partnerPhoto} size={104} />
             </div>
             <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 26, textAlign: "center" }}>
-              {opponent.name}
+              {partner.name}
             </h2>
             <p style={{ fontSize: 17, lineHeight: 1.7, textAlign: "center", maxWidth: 320 }}>
               Finish the bag of spinach together, as a group of four. Show Ajan when you&apos;re done — or agree to
@@ -134,7 +134,7 @@ export function ClubsPairingFlow({
       )}
       {myVoted ? (
         <p style={{ color: "var(--muted)", fontSize: 14 }}>
-          {isSolo ? "Giving up…" : `Waiting for ${opponent?.name} to also give up…`}
+          {isSolo ? "Giving up…" : `Waiting for ${partner?.name} to also give up…`}
         </p>
       ) : (
         <button

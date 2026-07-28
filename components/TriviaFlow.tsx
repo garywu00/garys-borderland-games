@@ -37,7 +37,7 @@ export function TriviaFlow({
 }) {
   const supabase = createClient();
   const [attempt, setAttempt] = useState<Attempt | null | undefined>(undefined);
-  const [answer, setAnswer] = useState("");
+  const [selectedChoice, setSelectedChoice] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [dismissed, setDismissed] = useState(false);
@@ -101,8 +101,11 @@ export function TriviaFlow({
     // Best-effort — if this fails (dropped connection right at the buzzer),
     // the Submit button below is still live and un-timed-out, so the player
     // can just retry manually instead of being stuck with no path forward.
-    submitTriviaAnswer(teamId, roundNumber, answer).catch(() => {});
-  }, [attempt, remainingMs, teamId, roundNumber, answer]);
+    // What gets submitted here doesn't actually matter for grading — a late
+    // submission is marked wrong regardless of the answer — so an unmade
+    // selection just submits an empty string.
+    submitTriviaAnswer(teamId, roundNumber, selectedChoice ?? "").catch(() => {});
+  }, [attempt, remainingMs, teamId, roundNumber, selectedChoice]);
 
   if (attempt === undefined) return null;
   if (dismissed && attempt?.submitted_at) return <>{children}</>;
@@ -158,22 +161,35 @@ export function TriviaFlow({
           {secondsLeft}s
         </p>
         <p style={{ fontSize: "var(--fs-callout)", fontWeight: 600, lineHeight: 1.5, margin: "12px 0 18px" }}>{question?.prompt}</p>
-        <input
-          type="text"
-          value={answer}
-          onChange={(e) => setAnswer(e.target.value)}
-          disabled={submitting}
-          placeholder="Your answer…"
-          style={{ marginBottom: 12 }}
-        />
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 12 }}>
+          {question?.choices.map((choice) => (
+            <button
+              key={choice}
+              className="btn-outline"
+              disabled={submitting}
+              aria-pressed={selectedChoice === choice}
+              style={{
+                width: "100%",
+                border: "2px solid var(--line)",
+                padding: "14px 16px",
+                background: selectedChoice === choice ? "var(--btn-bg)" : "transparent",
+                color: selectedChoice === choice ? "var(--btn-fg)" : "var(--fg)",
+              }}
+              onClick={() => setSelectedChoice(choice)}
+            >
+              {choice}
+            </button>
+          ))}
+        </div>
         <button
           className="btn"
           style={{ width: "100%" }}
-          disabled={submitting || !answer.trim()}
+          disabled={submitting || !selectedChoice}
           onClick={async () => {
+            if (!selectedChoice) return;
             setSubmitting(true);
             try {
-              const result = await submitTriviaAnswer(teamId, roundNumber, answer);
+              const result = await submitTriviaAnswer(teamId, roundNumber, selectedChoice);
               if (!result.ok) notify("Already submitted.");
             } catch {
               notify("Couldn't submit — check your connection and try again.");
