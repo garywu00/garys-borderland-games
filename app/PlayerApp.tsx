@@ -358,6 +358,22 @@ export function PlayerApp({ eventId }: { eventId: string }) {
     refreshShareStealSubmissions();
   }, [refreshShareStealSubmissions]);
 
+  // Belt-and-suspenders alongside the realtime subscription below: this is
+  // a short (max 60s), high-stakes window where a dropped/laggy websocket
+  // (real risk on event wifi with dozens of devices) would otherwise leave
+  // a player staring at a stale "select your action" screen after their
+  // partner already locked in a choice, or after the match actually
+  // resolved. A cheap poll while the window is open catches what a missed
+  // realtime event would otherwise silently drop.
+  useEffect(() => {
+    if (matchup?.status !== "active") return;
+    const interval = setInterval(() => {
+      refreshMatchup();
+      refreshShareStealSubmissions();
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [matchup?.status, refreshMatchup, refreshShareStealSubmissions]);
+
   // Realtime: keep everything live
   useEffect(() => {
     if (!ready) return;
@@ -1421,6 +1437,13 @@ function Round1Flow({
   notify: (msg: string) => void;
 }) {
   const [submitting, setSubmitting] = useState(false);
+  // mySubmittedChoice only reflects reality once the parent's realtime
+  // subscription (or its poll fallback) round-trips — which can lag by a
+  // beat, or longer on flaky event wifi. Setting this the instant our own
+  // submit call succeeds means the lock-in is immediate on THIS device
+  // regardless of that round-trip, instead of leaving a window where
+  // tapping Submit still visibly lets you change your answer.
+  const [locallySubmitted, setLocallySubmitted] = useState(false);
   const [rulesSeen, setRulesSeen] = useState(false);
   const [rulesModalOpen, setRulesModalOpen] = useState(false);
   const [opponentPhotos, setOpponentPhotos] = useState<(string | null)[]>([]);
@@ -1474,7 +1497,7 @@ function Round1Flow({
     return () => clearInterval(interval);
   }, [matchup?.id, matchup?.status]);
 
-  const mySubmitted = mySubmittedChoice !== null;
+  const mySubmitted = mySubmittedChoice !== null || locallySubmitted;
   const deadlineMs = matchup?.status === "active" && matchup.deadline_at ? new Date(matchup.deadline_at).getTime() : null;
   const remainingMs = deadlineMs !== null ? Math.max(0, deadlineMs - now) : null;
   const secondsLeft = remainingMs !== null ? Math.ceil(remainingMs / 1000) : null;
@@ -1485,7 +1508,11 @@ function Round1Flow({
   useEffect(() => {
     if (!matchup || mySubmitted || remainingMs === null || remainingMs > 0 || autoSubmittedRef.current) return;
     autoSubmittedRef.current = true;
-    submitShareSteal(matchup.id, teamId, myChoice ?? teammateDraftChoice ?? "share", true).catch(() => {});
+    submitShareSteal(matchup.id, teamId, myChoice ?? teammateDraftChoice ?? "share", true)
+      .then((result) => {
+        if (result.ok) setLocallySubmitted(true);
+      })
+      .catch(() => {});
   }, [matchup, mySubmitted, remainingMs, teamId, myChoice, teammateDraftChoice]);
 
   let content: React.ReactNode;
@@ -1558,25 +1585,26 @@ function Round1Flow({
             </div>
           </div>
         )}
-        {!mySubmitted && secondsLeft !== null && (
+        {secondsLeft !== null && (
           <div style={{ textAlign: "center" }}>
             <p className="label" style={{ marginBottom: 2 }}>
-              Time left
+              {mySubmitted ? "Waiting for the other team" : "Time left"}
             </p>
             <p
-              className={urgent ? "pulse-accent" : undefined}
-              style={{ fontFamily: "var(--font-mono)", fontWeight: 700, fontSize: "var(--fs-h1)", lineHeight: 1, color: urgent ? "var(--accent)" : "var(--fg)" }}
+              className={urgent && !mySubmitted ? "pulse-accent" : undefined}
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontWeight: 700,
+                fontSize: "var(--fs-h1)",
+                lineHeight: 1,
+                color: urgent && !mySubmitted ? "var(--accent)" : "var(--fg)",
+              }}
             >
               {secondsLeft}s
             </p>
           </div>
         )}
         <p className="label">{mySubmitted ? "Choice locked in" : "Select your action"}</p>
-        {mySubmitted && (
-          <p style={{ fontSize: "var(--fs-body)", color: "var(--muted)", textAlign: "center" }}>
-            Your pair already chose — waiting for the other team.
-          </p>
-        )}
         <div style={{ display: "flex", gap: 16, width: "100%" }}>
           {(["share", "steal"] as const).map((choice) => (
             <button
@@ -1608,7 +1636,13 @@ function Round1Flow({
               setSubmitting(true);
               try {
                 const result = await submitShareSteal(matchup.id, teamId, myChoice);
-                if (!result.ok) notify("Already submitted.");
+                // Either way the team's choice is now locked in server-side
+                // (ours, or a partner's that beat us to it) — lock the UI
+                // immediately rather than waiting on realtime/poll to catch
+                // up, which is exactly the lag that let Submit look like it
+                // did nothing.
+                setLocallySubmitted(true);
+                if (!result.ok) notify("Your partner already submitted for your team.");
               } finally {
                 setSubmitting(false);
               }
