@@ -14,37 +14,37 @@ export const TRIVIA_QUESTIONS: TriviaQuestion[] = [
   {
     id: "survivor",
     prompt: "What is Gary's favorite reality show?",
-    choices: ["Big Brother", "Survivor", "Love Island", "The Bachelor"],
+    choices: ["The Amazing Race", "Big Brother", "Survivor", "The Traitors"],
     accepts: ["survivor"],
   },
   {
     id: "eggs_benedict",
     prompt: "What is Gary's favorite brunch order?",
-    choices: ["Pancakes", "French Toast", "Eggs Benedict", "Avocado Toast"],
+    choices: ["Eggs Florentine", "Eggs Benedict", "Huevos Rancheros", "Shakshuka"],
     accepts: ["eggs benedict", "egg benedict"],
   },
   {
     id: "orange",
     prompt: "What color is Gary's phone?",
-    choices: ["Black", "Orange", "White", "Blue"],
+    choices: ["Coral", "Orange", "Red", "Peach"],
     accepts: ["orange"],
   },
   {
     id: "five",
     prompt: "How many times has Gary been to Coachella?",
-    choices: ["2", "8", "5", "3"],
+    choices: ["4", "5", "6", "7"],
     accepts: ["5", "five"],
   },
   {
     id: "overwatch",
     prompt: "What video game does Gary play?",
-    choices: ["Fortnite", "Overwatch", "Valorant", "League of Legends"],
+    choices: ["Valorant", "Overwatch", "Apex Legends", "Rainbow Six Siege"],
     accepts: ["overwatch"],
   },
   {
     id: "cooking",
     prompt: "What kind of content does Gary's little brother make?",
-    choices: ["Travel vlogs", "Gaming streams", "Fitness content", "Cooking / food content"],
+    choices: ["Baking content", "Cooking / food content", "Recipe videos", "Restaurant reviews"],
     accepts: [
       "cooking",
       "cooking content",

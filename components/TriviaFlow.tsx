@@ -71,6 +71,12 @@ export function TriviaFlow({
 
   useEffect(() => {
     if (!attempt || attempt.submitted_at) return;
+    // Correct immediately, don't wait for the first tick — now was last set
+    // whenever this component mounted (which can be well before started_at
+    // is actually known, e.g. while the player was still reading the intro
+    // screen), so without this the very first render shows an inflated
+    // "time left" that then visibly jumps down once the interval catches up.
+    setNow(Date.now());
     const interval = setInterval(() => setNow(Date.now()), 500);
     return () => clearInterval(interval);
   }, [attempt]);
@@ -210,9 +216,18 @@ export function TriviaFlow({
       ? "Correct. Your hearts are safe."
       : "Incorrect. Your pair loses 1 heart.";
 
+  const correctChoice = question?.choices.find((choice) => question.accepts.includes(choice.trim().toLowerCase()));
+
   return (
     <div className="pop-in" style={{ border: "2px solid var(--line)", padding: "26px 20px", marginBottom: 20, textAlign: "center" }}>
-      <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 24, marginBottom: 14 }}>{resultText}</h2>
+      <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 24, marginBottom: !attempt.is_correct && correctChoice ? 8 : 14 }}>
+        {resultText}
+      </h2>
+      {!attempt.is_correct && correctChoice && (
+        <p style={{ fontSize: "var(--fs-body)", color: "var(--muted)", marginBottom: 14 }}>
+          Correct answer: <strong style={{ color: "var(--fg)" }}>{correctChoice}</strong>
+        </p>
+      )}
       <button className="btn" style={{ width: "100%" }} onClick={() => setDismissed(true)}>
         Continue
       </button>

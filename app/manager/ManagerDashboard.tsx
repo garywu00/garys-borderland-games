@@ -23,10 +23,9 @@ import {
   giveByeRound1,
   giveByeRound2,
 } from "@/lib/actions/manager";
-import { overrideTriviaResult } from "@/lib/actions/trivia";
 import { expireShareSteal } from "@/lib/actions/player";
 import { getTriviaQuestion } from "@/lib/game/trivia";
-import { FINALIST_SLOTS, GAME_COUNTDOWN_DURATION_MS } from "@/lib/game/rules";
+import { FINALIST_SLOTS, GAME_COUNTDOWN_DURATION_MS, rankFinalists } from "@/lib/game/rules";
 
 type Team = { id: string; name: string; hearts_cached: number; status: string; event_id: string; created_at: string };
 type Finalist = { team_id: string; slot: number };
@@ -390,16 +389,7 @@ export function ManagerDashboard({ role, displayName }: { role: "ajan" | "michel
         />
       )}
 
-      {activeTab === "trivia" && (
-        <TriviaView
-          attempts={triviaAttempts}
-          teams={teams}
-          onOverride={async (attemptId) => {
-            const result = await overrideTriviaResult(attemptId);
-            notify(result.ok ? "Heart penalty reversed." : "Could not override — no penalty to reverse, or already reversed.");
-          }}
-        />
-      )}
+      {activeTab === "trivia" && <TriviaView attempts={triviaAttempts} teams={teams} />}
     </main>
   );
 }
@@ -431,16 +421,21 @@ function TeamRow({
   waitingSince,
   now,
   showStatus,
+  rank,
 }: {
   team: Team;
   right?: React.ReactNode;
   waitingSince?: string;
   now?: number;
   showStatus?: boolean;
+  rank?: number;
 }) {
   const waitMs = waitingSince && now ? now - new Date(waitingSince).getTime() : 0;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 14, padding: 14, border: "1.6px solid var(--line)", marginBottom: 10 }}>
+      {rank !== undefined && (
+        <div style={{ width: 22, textAlign: "center", fontSize: 15, fontWeight: 700, color: "var(--muted)" }}>{rank}</div>
+      )}
       <Portrait name={team.name} size={36} />
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: 17 }}>{team.name}</div>
@@ -843,10 +838,12 @@ function SpadesView({
   const waiting = teams
     .filter((t) => t.status === "final_waiting")
     .sort((a, b) => (waitingSinceById.get(a.id) ?? "").localeCompare(waitingSinceById.get(b.id) ?? ""));
-  const finalistTeams = finalists
-    .map((f) => ({ ...f, team: teams.find((t) => t.id === f.team_id) }))
-    .filter((f): f is Finalist & { team: Team } => !!f.team)
-    .sort((a, b) => b.team.hearts_cached - a.team.hearts_cached || a.slot - b.slot);
+  const finalistTeams = rankFinalists(
+    finalists
+      .map((f) => ({ ...f, team: teams.find((t) => t.id === f.team_id) }))
+      .filter((f): f is Finalist & { team: Team } => !!f.team)
+      .map((f) => ({ ...f, hearts: f.team.hearts_cached, arrivalOrder: f.slot, teamId: f.team.id })),
+  );
   const winnerTeam = winnerTeamId ? teams.find((t) => t.id === winnerTeamId) : null;
 
   return (
@@ -878,13 +875,17 @@ function SpadesView({
       )}
 
       <p className="label">
-        Top {FINALIST_SLOTS} — Finalists ({finalists.length} / {FINALIST_SLOTS})
+        Final standings — Top {FINALIST_SLOTS} ({finalists.length} / {FINALIST_SLOTS})
       </p>
+      {finalistTeams.length > 0 && (
+        <p style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>Ranked by hearts, ties broken by who arrived first.</p>
+      )}
       {finalistTeams.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0" }}>No finalists confirmed yet.</p>}
-      {finalistTeams.map((f) => (
+      {finalistTeams.map((f, i) => (
         <TeamRow
           key={f.team.id}
           team={f.team}
+          rank={i + 1}
           right={
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {f.team.id === winnerTeamId ? (
@@ -1161,15 +1162,7 @@ function formatRelativeTime(iso: string): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-function TriviaView({
-  attempts,
-  teams,
-  onOverride,
-}: {
-  attempts: TriviaAttempt[];
-  teams: Team[];
-  onOverride: (attemptId: string) => void;
-}) {
+function TriviaView({ attempts, teams }: { attempts: TriviaAttempt[]; teams: Team[] }) {
   return (
     <div>
       <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, textAlign: "center", marginBottom: 16 }}>Gary Trivia</h2>
@@ -1186,18 +1179,9 @@ function TriviaView({
               <div className="label">Round {a.round_number}</div>
             </div>
             <div style={{ fontSize: 14, marginBottom: 4 }}>{question?.prompt ?? a.question_id}</div>
-            <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 8 }}>
+            <div style={{ fontSize: 13, color: "var(--muted)" }}>
               Answer: {a.submitted_answer ?? "—"} · {resultLabel}
             </div>
-            {a.heart_transaction_id && (
-              <button
-                className="btn-outline"
-                style={{ width: "auto", minHeight: "auto", padding: "8px 12px", fontSize: 12, border: "1.6px solid var(--line)" }}
-                onClick={() => onOverride(a.id)}
-              >
-                Override — restore heart
-              </button>
-            )}
           </div>
         );
       })}

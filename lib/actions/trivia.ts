@@ -1,9 +1,8 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/server";
-import { requireTeamMember, requireManager } from "@/lib/actions/session";
-import { applyHeartDelta, reverseHeartDelta } from "@/lib/actions/hearts";
-import { logAction } from "@/lib/actions/manager";
+import { requireTeamMember } from "@/lib/actions/session";
+import { applyHeartDelta } from "@/lib/actions/hearts";
 import { TRIVIA_QUESTIONS, checkTriviaAnswer, TRIVIA_TIME_LIMIT_MS } from "@/lib/game/trivia";
 
 type RoundNumber = 1 | 2 | 3;
@@ -94,25 +93,4 @@ export async function submitTriviaAnswer(teamId: string, roundNumber: RoundNumbe
     .eq("id", attempt.id);
 
   return { ok: true as const, correct: isCorrect, timedOut: isLate };
-}
-
-export async function overrideTriviaResult(attemptId: string) {
-  const manager = await requireManager();
-  const admin = createAdminClient();
-
-  const { data: attempt } = await admin
-    .from("team_trivia_attempts")
-    .select("id, team_id, heart_transaction_id, is_correct")
-    .eq("id", attemptId)
-    .maybeSingle();
-  if (!attempt) return { ok: false as const, reason: "not_found" as const };
-  if (!attempt.heart_transaction_id) return { ok: false as const, reason: "no_penalty" as const };
-
-  const result = await reverseHeartDelta(attempt.heart_transaction_id, manager.id);
-  if (!result.applied) return { ok: false as const, reason: "already_reversed" as const };
-
-  await admin.from("team_trivia_attempts").update({ is_correct: true }).eq("id", attemptId);
-  await logAction(manager.id, manager.role, "Overrode trivia penalty", attempt.team_id, null, { attemptId });
-
-  return { ok: true as const };
 }

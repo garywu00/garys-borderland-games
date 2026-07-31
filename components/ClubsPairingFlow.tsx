@@ -111,8 +111,8 @@ export function ClubsPairingFlow({
         <>
           <p className="label">Your own bag</p>
           <p style={{ fontSize: 17, lineHeight: 1.7, textAlign: "center", maxWidth: 320 }}>
-            Ajan&apos;s given you a smaller bag of spinach — no other team this time. Finish it as a pair, or give
-            up.
+            Ajan&apos;s given you a smaller bag of spinach — no other team this time. The 2 of you must finish the
+            contents in the bag. No cheating. Throw away trash after.
           </p>
         </>
       ) : (
@@ -126,12 +126,14 @@ export function ClubsPairingFlow({
               {partner.name}
             </h2>
             <p style={{ fontSize: 17, lineHeight: 1.7, textAlign: "center", maxWidth: 320 }}>
-              Finish the bag of spinach together, as a group of four. Show Ajan when you&apos;re done — or agree to
-              give up together.
+              The 4 of you must finish the contents in the bag(s). No cheating. Throw away trash after.
             </p>
           </>
         )
       )}
+      <p style={{ fontSize: 14, lineHeight: 1.5, textAlign: "center", color: "var(--muted)", maxWidth: 300 }}>
+        If you give up, that&apos;s -2 hearts — but you still move on to the next checkpoint.
+      </p>
       {myVoted ? (
         <p style={{ color: "var(--muted)", fontSize: 14 }}>
           {isSolo ? "Giving up…" : `Waiting for ${partner?.name} to also give up…`}

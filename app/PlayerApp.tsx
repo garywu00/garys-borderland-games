@@ -329,17 +329,25 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   // original design (each team only auto-submitting its own default) went
   // silently nowhere whenever that one team's device was backgrounded or
   // closed right at the deadline.
+  //
+  // Also keeps polling for a while *after* resolution (until this device has
+  // actually shown the reveal, per revealSeenMatchupId) — a team that
+  // reported needing to manually refresh to see the reveal is exactly the
+  // symptom of a missed realtime event landing right at resolution, so this
+  // makes sure the resolved matchup + opponent data gets re-fetched
+  // regardless of whether that one realtime message ever arrives.
+  const awaitingReveal = matchup?.status === "resolved" && matchup.id !== revealSeenMatchupId;
   useEffect(() => {
-    if (matchup?.status !== "active") return;
+    if (matchup?.status !== "active" && !awaitingReveal) return;
     const interval = setInterval(() => {
       refreshMatchup();
       refreshShareStealSubmissions();
-      if (matchup.deadline_at && new Date(matchup.deadline_at).getTime() <= Date.now()) {
+      if (matchup?.status === "active" && matchup.deadline_at && new Date(matchup.deadline_at).getTime() <= Date.now()) {
         expireShareSteal(matchup.id).catch(() => {});
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [matchup?.status, refreshMatchup, refreshShareStealSubmissions]);
+  }, [matchup?.status, awaitingReveal, refreshMatchup, refreshShareStealSubmissions]);
 
   // Realtime: keep everything live
   useEffect(() => {
@@ -546,11 +554,6 @@ export function PlayerApp({ eventId }: { eventId: string }) {
           teamName={team.name}
           eyebrow={congrats === "round2pass" ? "The bag is empty" : "The chicken approves"}
           title={congrats === "round2pass" ? "You survived the Clubs." : "Michelle lets you through."}
-          subtitle={
-            congrats === "round2pass"
-              ? "One trial down. The next one is already watching you."
-              : "Two down. One remains — and it's the one that decides everything."
-          }
           onDismiss={() => setCongrats(null)}
         />
         <Toast msg={toast} />
@@ -591,7 +594,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
       )}
       {team.status === "final_waiting" && (
         <TriviaFlow teamId={teamId} roundNumber={3} notify={notify}>
-          <CheckpointWait label="The last checkpoint" personName="Gary" direction="FIND GARY AT FOCAL POINT BREWERY." />
+          <CheckpointWait label="The last checkpoint" direction="FIND GARY AT FOCAL POINT BREWERY." />
         </TriviaFlow>
       )}
       {team.status === "eliminated" && (
@@ -671,10 +674,6 @@ export function PlayerApp({ eventId }: { eventId: string }) {
           <h2 className="fade-up" style={{ fontFamily: "var(--font-display)", fontSize: "var(--fs-h1)", textAlign: "center" }}>
             Finalist #{finalistSlot ?? "—"}
           </h2>
-          <p className="fade-up" style={{ fontSize: "var(--fs-body-lg)", textAlign: "center", maxWidth: 320, lineHeight: 1.6, color: "var(--muted)" }}>
-            You&apos;re standing at Focal Point Brewery — one of only {FINALIST_SLOTS} pairs left. One final game
-            decides everything.
-          </p>
           <div style={{ fontSize: "var(--fs-h4)" }}>♥ {team.hearts_cached} remaining</div>
           <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
             {collectedCards.map((c) => (
@@ -975,7 +974,7 @@ function TeamPhotoStep({
 
   return (
     <Stack>
-      <PhotoCapture label="Get the whole team in frame" buttonLabel="Take Photo" mirror={false} onCapture={(dataUrl) => setPhoto(dataUrl)} />
+      <PhotoCapture label="Get the whole team in frame" buttonLabel="Take Photo" onCapture={(dataUrl) => setPhoto(dataUrl)} />
       <button className="btn btn-outline" style={{ width: "100%" }} onClick={onBack}>
         Back
       </button>
@@ -1289,6 +1288,12 @@ function Round1Flow({
   const autoSubmittedRef = useRef(false);
   useEffect(() => {
     if (!matchup || matchup.status !== "active") return;
+    // Correct immediately, don't wait for the first tick — now was last set
+    // whenever Round1Flow mounted (well before deadline_at exists, e.g.
+    // during the pending_ready wait), so without this the very first render
+    // after both teams ready up shows an inflated "time left" that then
+    // visibly jumps down once the interval catches up a second later.
+    setNow(Date.now());
     const interval = setInterval(() => setNow(Date.now()), 1000);
     const onVisible = () => {
       if (document.visibilityState === "visible") setNow(Date.now());
@@ -1531,7 +1536,7 @@ function RulesModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-function CheckpointWait({ label, personName, direction }: { label: string; personName: string; direction: string }) {
+function CheckpointWait({ label, direction }: { label: string; direction: string }) {
   return (
     <Stack>
       <p className="label">{label}</p>
@@ -1540,9 +1545,6 @@ function CheckpointWait({ label, personName, direction }: { label: string; perso
           {direction}
         </p>
       </div>
-      <p style={{ fontSize: "var(--fs-body)", textAlign: "center", color: "var(--muted)", lineHeight: 1.6, maxWidth: 300 }}>
-        {personName} is waiting there. Only they can let you continue.
-      </p>
     </Stack>
   );
 }
