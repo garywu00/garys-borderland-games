@@ -20,13 +20,13 @@ export const TRIVIA_QUESTIONS: TriviaQuestion[] = [
   {
     id: "eggs_benedict",
     prompt: "What is Gary's favorite brunch order?",
-    choices: ["Eggs Florentine", "Eggs Benedict", "Huevos Rancheros", "Shakshuka"],
+    choices: ["Eggs Benedict", "Classic Eggs and Bacon", "Omelette", "Shakshuka"],
     accepts: ["eggs benedict", "egg benedict"],
   },
   {
     id: "orange",
     prompt: "What color is Gary's phone?",
-    choices: ["Coral", "Orange", "Red", "Peach"],
+    choices: ["Silver", "Grey", "Orange", "Navy Blue"],
     accepts: ["orange"],
   },
   {
@@ -38,13 +38,13 @@ export const TRIVIA_QUESTIONS: TriviaQuestion[] = [
   {
     id: "overwatch",
     prompt: "What video game does Gary play?",
-    choices: ["Valorant", "Overwatch", "Apex Legends", "Rainbow Six Siege"],
+    choices: ["Valorant", "Overwatch", "Pokemon", "Mario Party"],
     accepts: ["overwatch"],
   },
   {
     id: "cooking",
     prompt: "What kind of content does Gary's little brother make?",
-    choices: ["Baking content", "Cooking / food content", "Recipe videos", "Restaurant reviews"],
+    choices: ["Cooking / food content", "Thirst trapping", "Restaurant reviews", "Travel content"],
     accepts: [
       "cooking",
       "cooking content",
