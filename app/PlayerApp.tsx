@@ -26,6 +26,7 @@ import {
   setReady,
   submitShareSteal,
   expireShareSteal,
+  type TeamMemberInput,
 } from "@/lib/actions/player";
 import { getTeamPhotoUrl } from "@/lib/actions/photos";
 
@@ -142,7 +143,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
   const [finalistSlot, setFinalistSlot] = useState<number | null>(null);
   const [isWinner, setIsWinner] = useState(false);
   const [formStep, setFormStep] = useState<"landing" | "select-teammates" | "photo" | "recover">("landing");
-  const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
+  const [selectedMembers, setSelectedMembers] = useState<TeamMemberInput[]>([]);
   const [forming, setForming] = useState(false);
   const [recoveryPinShown, setRecoveryPinShown] = useState<string | null>(null);
   const [myChoice, setMyChoice] = useState<"share" | "steal" | null>(null);
@@ -455,8 +456,8 @@ export function PlayerApp({ eventId }: { eventId: string }) {
           <SelectTeammatesStep
             players={players}
             teamedPlayerIds={teamedPlayerIds}
-            onContinue={(ids) => {
-              setSelectedPlayerIds(ids);
+            onContinue={(members) => {
+              setSelectedMembers(members);
               setFormStep("photo");
             }}
           />
@@ -468,7 +469,7 @@ export function PlayerApp({ eventId }: { eventId: string }) {
             onDone={async (photoDataUrl) => {
               setForming(true);
               try {
-                const result = await formTeam(selectedPlayerIds, photoDataUrl);
+                const result = await formTeam(selectedMembers, photoDataUrl);
                 if (result.ok) {
                   setTeamId(result.teamId);
                   saveLocal({ teamId: result.teamId });
@@ -476,8 +477,10 @@ export function PlayerApp({ eventId }: { eventId: string }) {
                 } else {
                   notify(
                     result.reason === "already_on_team"
-                      ? "One of these players is already on a team."
-                      : "Couldn't form your team — try again.",
+                      ? "One of these names is already on a team."
+                      : result.reason === "duplicate_name"
+                        ? "Two teammates can't have the same name — check for a typo."
+                        : "Couldn't form your team — try again.",
                   );
                   setFormStep("select-teammates");
                 }
@@ -883,59 +886,128 @@ function SelectTeammatesStep({
 }: {
   players: Player[];
   teamedPlayerIds: Set<string>;
-  onContinue: (ids: string[]) => void;
+  onContinue: (members: TeamMemberInput[]) => void;
 }) {
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<string[]>([]);
-  const available = players.filter(
-    (p) => !teamedPlayerIds.has(p.id) && p.display_name.toLowerCase().includes(query.toLowerCase()),
+  const [selected, setSelected] = useState<TeamMemberInput[]>([]);
+
+  const isSelectedName = (name: string) => selected.some((m) => m.name.toLowerCase() === name.toLowerCase());
+
+  const suggestions = players.filter(
+    (p) => !teamedPlayerIds.has(p.id) && !isSelectedName(p.display_name) && p.display_name.toLowerCase().includes(query.trim().toLowerCase()),
   );
 
-  function toggle(id: string) {
-    setSelected((cur) => {
-      if (cur.includes(id)) return cur.filter((x) => x !== id);
-      if (cur.length >= 3) return cur;
-      return [...cur, id];
-    });
+  const trimmedQuery = query.trim();
+  const exactMatch = suggestions.some((p) => p.display_name.toLowerCase() === trimmedQuery.toLowerCase());
+  const canAddNew = trimmedQuery.length > 0 && !exactMatch && !isSelectedName(trimmedQuery) && selected.length < 3;
+
+  function addExisting(p: Player) {
+    if (selected.length >= 3) return;
+    setSelected((cur) => [...cur, { name: p.display_name, playerId: p.id }]);
+    setQuery("");
+  }
+
+  function addNew() {
+    if (!canAddNew) return;
+    setSelected((cur) => [...cur, { name: trimmedQuery }]);
+    setQuery("");
+  }
+
+  function remove(name: string) {
+    setSelected((cur) => cur.filter((m) => m.name.toLowerCase() !== name.toLowerCase()));
   }
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
       <h2 style={{ fontWeight: 400, fontSize: "var(--fs-h4)", marginBottom: 8, textAlign: "center" }}>Who&apos;s on your team?</h2>
       <p style={{ fontSize: "var(--fs-body)", textAlign: "center", color: "var(--muted)", marginBottom: 16 }}>
-        Pick the 2 or 3 people standing here with you right now.
+        Type the names of the 2 or 3 people standing here with you right now.
       </p>
-      <input type="text" placeholder="Search roster…" value={query} onChange={(e) => setQuery(e.target.value)} />
-      <div style={{ marginTop: 8, flex: 1, overflowY: "auto" }}>
-        {available.length === 0 && <p style={{ color: "var(--muted)", padding: "16px 0", textAlign: "center" }}>Everyone&apos;s already on a team.</p>}
-        {available.map((p) => {
-          const isSelected = selected.includes(p.id);
-          return (
-            <div
-              key={p.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => toggle(p.id)}
+
+      {selected.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+          {selected.map((m) => (
+            <button
+              key={m.name.toLowerCase()}
+              className="btn-outline"
+              onClick={() => remove(m.name)}
               style={{
+                width: "auto",
+                minHeight: "auto",
+                padding: "8px 12px",
+                fontSize: "var(--fs-sm)",
+                border: "1.6px solid var(--accent)",
+                color: "var(--accent)",
                 display: "flex",
                 alignItems: "center",
-                gap: 14,
-                padding: "14px 10px",
-                marginBottom: 6,
-                border: isSelected ? "2px solid var(--accent)" : "1.6px solid transparent",
-                background: isSelected ? "rgba(198,40,40,0.06)" : "transparent",
-                cursor: "pointer",
+                gap: 6,
               }}
             >
-              <Portrait name={p.display_name} size={36} />
-              <div style={{ flex: 1 }}>{p.display_name}</div>
-              {isSelected && <span style={{ color: "var(--accent)", fontSize: "var(--fs-h4)" }}>✓</span>}
-            </div>
-          );
-        })}
-      </div>
+              {m.name} ✕
+            </button>
+          ))}
+        </div>
+      )}
+
+      {selected.length < 3 && (
+        <>
+          <input
+            type="text"
+            placeholder="Type a name…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && canAddNew) addNew();
+            }}
+          />
+          <div style={{ marginTop: 8, flex: 1, overflowY: "auto" }}>
+            {canAddNew && (
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={addNew}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 14,
+                  padding: "14px 10px",
+                  marginBottom: 6,
+                  border: "1.6px dashed var(--accent)",
+                  cursor: "pointer",
+                }}
+              >
+                <Portrait name={trimmedQuery} size={36} />
+                <div style={{ flex: 1 }}>
+                  Add &ldquo;{trimmedQuery}&rdquo; as a new teammate
+                </div>
+              </div>
+            )}
+            {suggestions.map((p) => (
+              <div
+                key={p.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => addExisting(p)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 14,
+                  padding: "14px 10px",
+                  marginBottom: 6,
+                  border: "1.6px solid transparent",
+                  cursor: "pointer",
+                }}
+              >
+                <Portrait name={p.display_name} size={36} />
+                <div style={{ flex: 1 }}>{p.display_name}</div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
       <button className="btn" style={{ width: "100%", marginTop: 12 }} disabled={selected.length < 2} onClick={() => onContinue(selected)}>
-        {selected.length < 2 ? "Select at least 2" : `Continue with ${selected.length}`}
+        {selected.length < 2 ? "Add at least 2 people" : `Continue with ${selected.length}`}
       </button>
     </div>
   );

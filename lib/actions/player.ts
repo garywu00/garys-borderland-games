@@ -52,6 +52,8 @@ async function tryAutoMatchRound1(admin: ReturnType<typeof createAdminClient>, e
   await admin.from("matchups").insert({ event_id: eventId, team_a_id: opponent.id, team_b_id: teamId });
 }
 
+export type TeamMemberInput = { name: string; playerId?: string | null };
+
 /**
  * Forms a whole team in one step: 2-3 people physically together, one
  * device, one group photo. Replaces the old claim-a-name-then-invite-a-
@@ -60,20 +62,69 @@ async function tryAutoMatchRound1(admin: ReturnType<typeof createAdminClient>, e
  * them." The forming device becomes the team's sole controller; a teammate
  * can take over on a different device later via the recovery PIN returned
  * here (see recoverTeamWithPin) if this device is lost.
+ *
+ * There's no pre-seeded roster to maintain anymore — each member is either
+ * an existing unclaimed player (picked from the autocomplete list, carries
+ * playerId) or a brand-new name typed on the spot (playerId omitted, a
+ * players row is created here). Matching by name (case-insensitively)
+ * against unclaimed players avoids creating duplicate rows if two people
+ * happen to type the same name independently.
  */
-export async function formTeam(playerIds: string[], photoDataUrl: string) {
+export async function formTeam(members: TeamMemberInput[], photoDataUrl: string) {
   const authId = await requireAuthId();
   const admin = createAdminClient();
 
-  if (playerIds.length < 2 || playerIds.length > 3) {
+  if (members.length < 2 || members.length > 3) {
     return { ok: false as const, reason: "invalid_size" as const };
+  }
+
+  const trimmedNames = members.map((m) => m.name.trim());
+  if (trimmedNames.some((n) => n.length === 0)) {
+    return { ok: false as const, reason: "invalid_name" as const };
+  }
+  if (new Set(trimmedNames.map((n) => n.toLowerCase())).size !== trimmedNames.length) {
+    return { ok: false as const, reason: "duplicate_name" as const };
   }
 
   const eventId = await activeEventId(admin);
 
-  const { data: players } = await admin.from("players").select("id, display_name").eq("event_id", eventId).in("id", playerIds);
-  if (!players || players.length !== playerIds.length) {
-    return { ok: false as const, reason: "not_found" as const };
+  const { data: teamedRows } = await admin.from("team_members").select("player_id");
+  const teamedIds = new Set((teamedRows ?? []).map((r) => r.player_id));
+
+  const playerIds: string[] = [];
+  const orderedNames: string[] = [];
+  for (let i = 0; i < members.length; i++) {
+    const name = trimmedNames[i]!;
+    const claimedId = members[i]!.playerId;
+    if (claimedId) {
+      if (teamedIds.has(claimedId)) return { ok: false as const, reason: "already_on_team" as const };
+      const { data: existing } = await admin.from("players").select("id, display_name").eq("id", claimedId).eq("event_id", eventId).maybeSingle();
+      if (!existing) return { ok: false as const, reason: "not_found" as const };
+      playerIds.push(existing.id);
+      orderedNames.push(existing.display_name);
+      continue;
+    }
+
+    const { data: match } = await admin
+      .from("players")
+      .select("id, display_name")
+      .eq("event_id", eventId)
+      .ilike("display_name", name)
+      .maybeSingle();
+    if (match && !teamedIds.has(match.id)) {
+      playerIds.push(match.id);
+      orderedNames.push(match.display_name);
+      continue;
+    }
+
+    const { data: inserted, error } = await admin
+      .from("players")
+      .insert({ event_id: eventId, display_name: name })
+      .select("id, display_name")
+      .single();
+    if (error || !inserted) return { ok: false as const, reason: "not_found" as const };
+    playerIds.push(inserted.id);
+    orderedNames.push(inserted.display_name);
   }
 
   const { data: existingMembers } = await admin.from("team_members").select("player_id").in("player_id", playerIds);
@@ -85,7 +136,6 @@ export async function formTeam(playerIds: string[], photoDataUrl: string) {
   // this event. The .is(...null) guard makes this idempotent.
   await admin.from("events").update({ starts_at: new Date().toISOString() }).eq("id", eventId).is("starts_at", null);
 
-  const orderedNames = playerIds.map((id) => players.find((p) => p.id === id)!.display_name);
   const pin = generatePin();
   const pinHash = await bcrypt.hash(pin, 10);
 
